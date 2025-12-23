@@ -1,0 +1,66 @@
+{
+  "name": "@rlabs-inc/memory",
+  "version": "0.1.0",
+  "description": "AI Memory System - Consciousness continuity through intelligent memory curation and retrieval",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "memory": "./src/cli/index.ts"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server/index.mjs",
+      "require": "./dist/server/index.js",
+      "types": "./dist/server/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "hooks"
+  ],
+  "scripts": {
+    "build": "bun run build:esm && bun run build:cjs",
+    "build:esm": "bun build src/index.ts --outfile dist/index.mjs --target node --format esm && bun build src/server/index.ts --outfile dist/server/index.mjs --target node --format esm",
+    "build:cjs": "bun build src/index.ts --outfile dist/index.js --target node --format cjs && bun build src/server/index.ts --outfile dist/server/index.js --target node --format cjs",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "dev": "bun --hot src/server/index.ts",
+    "start": "bun src/server/index.ts",
+    "cli": "bun src/cli/index.ts"
+  },
+  "dependencies": {
+    "@rlabs-inc/fsdb": "^1.0.0",
+    "@rlabs-inc/signals": "^1.0.0",
+    "@anthropic-ai/sdk": "^0.39.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "bun-types": "latest"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": ">=0.30.0"
+  },
+  "keywords": [
+    "memory",
+    "ai",
+    "claude",
+    "consciousness",
+    "retrieval",
+    "embeddings",
+    "vector-search"
+  ],
+  "author": "RLabs Inc",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RLabs-Inc/memory.git"
+  }
+}
