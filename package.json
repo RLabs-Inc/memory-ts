@@ -1,6 +1,6 @@
 {
   "name": "@rlabs-inc/memory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI Memory System - Consciousness continuity through intelligent memory curation and retrieval",
   "type": "module",
   "main": "dist/index.js",
@@ -38,15 +38,11 @@
   },
   "dependencies": {
     "@rlabs-inc/fsdb": "^1.0.0",
-    "@rlabs-inc/signals": "^1.0.0",
-    "@anthropic-ai/sdk": "^0.39.0"
+    "@rlabs-inc/signals": "^1.0.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",
     "bun-types": "latest"
-  },
-  "peerDependencies": {
-    "@anthropic-ai/sdk": ">=0.30.0"
   },
   "keywords": [
     "memory",
@@ -61,6 +57,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/RLabs-Inc/memory.git"
+    "url": "https://github.com/RLabs-Inc/memory-ts.git"
   }
 }
