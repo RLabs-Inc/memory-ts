@@ -22,8 +22,7 @@ ${fmt.cmd('memory <command> [options]')}
 ${c.bold('Commands:')}
   ${c.command('serve')}      Start the memory server ${c.muted('(default)')}
   ${c.command('stats')}      Show memory statistics
-  ${c.command('install')}    Set up Claude Code hooks
-  ${c.command('install-gemini')} Set up Gemini CLI hooks
+  ${c.command('install')}    Set up hooks ${c.muted('(--claude or --gemini)')}
   ${c.command('doctor')}     Check system health
   ${c.command('help')}       Show this help message
 
@@ -31,13 +30,16 @@ ${c.bold('Options:')}
   ${c.cyan('-p, --port')} <port>    Server port ${c.muted('(default: 8765)')}
   ${c.cyan('-v, --verbose')}        Verbose output
   ${c.cyan('-q, --quiet')}          Minimal output
+  ${c.cyan('--claude')}             Install hooks for Claude Code
+  ${c.cyan('--gemini')}             Install hooks for Gemini CLI
   ${c.cyan('--version')}            Show version
 
 ${c.bold('Examples:')}
 ${fmt.cmd('memory')}                    ${c.muted('# Start server on default port')}
 ${fmt.cmd('memory serve --port 9000')}  ${c.muted('# Start on custom port')}
 ${fmt.cmd('memory stats')}              ${c.muted('# Show memory statistics')}
-${fmt.cmd('memory install')}            ${c.muted('# Set up hooks for Claude Code')}
+${fmt.cmd('memory install')}            ${c.muted('# Install Claude Code hooks (default)')}
+${fmt.cmd('memory install --gemini')}   ${c.muted('# Install Gemini CLI hooks')}
 
 ${c.muted('Documentation: https://github.com/RLabs-Inc/memory')}
 `)
@@ -62,6 +64,9 @@ async function main() {
       quiet: { type: 'boolean', short: 'q', default: false },
       help: { type: 'boolean', short: 'h', default: false },
       version: { type: 'boolean', default: false },
+      force: { type: 'boolean', default: false },
+      claude: { type: 'boolean', default: false },
+      gemini: { type: 'boolean', default: false },
     },
     allowPositionals: true,
     strict: false,  // Allow unknown options for subcommands
@@ -101,12 +106,6 @@ async function main() {
     case 'setup': {
       const { install } = await import('./commands/install.ts')
       await install(values)
-      break
-    }
-
-    case 'install-gemini': {
-      const { installGemini } = await import('./commands/install-gemini.ts')
-      await installGemini(values)
       break
     }
 
