@@ -379,7 +379,7 @@ export class MemoryEngine {
     store: MemoryStore,
     projectId: string
   ): Promise<SessionPrimer> {
-    // Fetch personal primer from GLOBAL collection (separate fsdb instance)
+    // Fetch personal primer from dedicated primer collection in global database
     let personalContext: string | undefined
     if (this._config.personalMemoriesEnabled) {
       const personalPrimer = await store.getPersonalPrimer()
@@ -590,7 +590,8 @@ export class MemoryEngine {
     // This is a constant: ~/.local/share/memory/global
     const globalPath = join(homedir(), '.local', 'share', 'memory', 'global')
     const globalMemoriesPath = join(globalPath, 'memories')
-    const personalPrimerPath = join(globalPath, 'memories', 'personal-primer.md')
+    // Personal primer has its own dedicated collection (not in memories)
+    const personalPrimerPath = join(globalPath, 'primer', 'personal-primer.md')
 
     // Project path depends on storage mode - mirrors _getStore() logic exactly
     let storeBasePath: string

@@ -154,3 +154,16 @@ export const managementLogSchema = {
 } as const satisfies SchemaDefinition
 
 export type ManagementLogSchema = typeof managementLogSchema
+
+/**
+ * Personal primer schema - relationship context injected at session start
+ * Singleton record (only one primer exists in global database)
+ * Stored in dedicated 'primer' collection, not mixed with memories
+ */
+export const personalPrimerSchema = {
+  content: 'string',                    // The markdown content (body after frontmatter)
+  session_updated: 'number',            // Session number when last updated
+  updated_by: 'string',                 // 'user' | 'manager' | 'curator'
+} as const satisfies SchemaDefinition
+
+export type PersonalPrimerSchema = typeof personalPrimerSchema

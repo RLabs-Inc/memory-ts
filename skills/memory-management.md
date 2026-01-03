@@ -363,11 +363,23 @@ When memory is retrieved and surfaced:
 
 ## Personal Primer Management
 
-The personal primer is a special document in the global collection that provides relationship context at the START of EVERY session - not just the first session of a project.
+The personal primer is a special document in its own dedicated collection (`primer/`) that provides relationship context at the START of EVERY session - not just the first session of a project.
 
 **Why every session?** Without the primer, Claude would know more about the user in session #1 than in session #32. The relationship context is foundational and must always be present.
 
-**Location:** Use the **Personal Primer** path provided in your input (under Global Storage). Never hardcode paths.
+**Location:** `~/.local/share/memory/global/primer/personal-primer.md` - the primer has its own collection, separate from memories.
+
+**Schema:** The primer uses a simple dedicated schema (not the full memory schema):
+```yaml
+---
+id: personal-primer
+created: {timestamp}
+updated: {timestamp}
+session_updated: {session_number}
+updated_by: user|manager|curator
+---
+{markdown content}
+```
 
 **Injection:** The session primer generator reads this file and includes it BEFORE the project-specific content (previous session summary, project snapshot). On first sessions, there's no previous summary or snapshot, so only the personal primer appears. On subsequent sessions, personal primer + previous summary + snapshot all appear.
 
@@ -521,13 +533,14 @@ Your input includes these paths:
 - **Project Memories**: Subdirectory for project memories (`{Project Root}/memories/`)
 - **Global Root**: The global storage directory (`~/.local/share/memory/global/`)
 - **Global Memories**: Subdirectory for global memories (`{Global Root}/memories/`)
-- **Personal Primer**: Full path to the personal primer file
+- **Personal Primer**: Full path to the personal primer file (`{Global Root}/primer/personal-primer.md`)
 
 Other subdirectories you may find:
 - `{Project Root}/sessions/` - Session tracking files
 - `{Project Root}/summaries/` - Session summary files
 - `{Project Root}/snapshots/` - Project snapshot files
 - `{Global Root}/management-logs/` - Management agent logs
+- `{Global Root}/primer/` - Personal primer collection (singleton record)
 
 ### Tool Usage
 

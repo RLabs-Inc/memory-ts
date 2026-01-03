@@ -19,12 +19,14 @@ import {
   projectSnapshotSchema,
   sessionSchema,
   managementLogSchema,
+  personalPrimerSchema,
   MEMORY_SCHEMA_VERSION,
   type MemorySchema,
   type SessionSummarySchema,
   type ProjectSnapshotSchema,
   type SessionSchema,
   type ManagementLogSchema,
+  type PersonalPrimerSchema,
 } from '../types/schema.ts'
 
 /**
@@ -70,6 +72,7 @@ interface GlobalDB {
   db: Database
   memories: PersistentCollection<typeof memorySchema>
   managementLogs: PersistentCollection<typeof managementLogSchema>
+  primer: PersistentCollection<typeof personalPrimerSchema>
 }
 
 /**
@@ -146,9 +149,17 @@ export class MemoryStore {
       watchFiles: this._config.watchFiles,
     })
 
-    await Promise.all([memories.load(), managementLogs.load()])
+    // Personal primer collection (singleton - relationship context for session start)
+    const primer = db.collection('primer', {
+      schema: personalPrimerSchema,
+      contentColumn: 'content',
+      autoSave: true,
+      watchFiles: this._config.watchFiles,
+    })
 
-    this._global = { db, memories, managementLogs }
+    await Promise.all([memories.load(), managementLogs.load(), primer.load()])
+
+    this._global = { db, memories, managementLogs, primer }
     return this._global
   }
 
@@ -260,50 +271,48 @@ export class MemoryStore {
    * Returns null if no primer exists yet (grows organically with personal memories)
    */
   async getPersonalPrimer(): Promise<PersonalPrimer | null> {
-    const { memories } = await this.getGlobal()
+    const { primer } = await this.getGlobal()
 
-    // Personal primer is stored as a special memory record
-    const primer = memories.get(PERSONAL_PRIMER_ID)
-    if (!primer) {
+    // Personal primer is stored in dedicated primer collection (singleton)
+    const record = primer.get(PERSONAL_PRIMER_ID)
+    if (!record) {
       return null
     }
 
     return {
-      content: primer.content,
-      updated: primer.updated,
+      content: record.content,
+      updated: record.updated,  // fsdb auto-manages this timestamp
     }
   }
 
   /**
    * Update the personal primer
    * Creates it if it doesn't exist
+   * @param content - The markdown content for the primer
+   * @param sessionNumber - Current session number (for tracking when updated)
+   * @param updatedBy - Who made the update ('user' | 'manager' | 'curator')
    */
-  async setPersonalPrimer(content: string): Promise<void> {
-    const { memories } = await this.getGlobal()
+  async setPersonalPrimer(
+    content: string,
+    sessionNumber?: number,
+    updatedBy: 'user' | 'manager' | 'curator' = 'user'
+  ): Promise<void> {
+    const { primer } = await this.getGlobal()
 
-    const existing = memories.get(PERSONAL_PRIMER_ID)
+    const existing = primer.get(PERSONAL_PRIMER_ID)
     if (existing) {
-      memories.update(PERSONAL_PRIMER_ID, { content })
+      primer.update(PERSONAL_PRIMER_ID, {
+        content,
+        session_updated: sessionNumber ?? existing.session_updated,
+        updated_by: updatedBy,
+      })
     } else {
-      // Create the primer as a special memory record
-      memories.insert({
+      // Create the primer record
+      primer.insert({
         id: PERSONAL_PRIMER_ID,
         content,
-        reasoning: 'Personal relationship context injected at session start',
-        importance_weight: 1.0,
-        confidence_score: 1.0,
-        context_type: 'personal',
-        temporal_relevance: 'persistent',
-        knowledge_domain: 'personal',
-        emotional_resonance: 'neutral',
-        action_required: false,
-        problem_solution_pair: false,
-        semantic_tags: ['personal', 'primer', 'relationship'],
-        trigger_phrases: [],
-        question_types: [],
-        session_id: 'system',
-        project_id: 'global',
-        embedding: null,
+        session_updated: sessionNumber ?? 0,
+        updated_by: updatedBy,
       })
     }
   }

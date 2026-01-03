@@ -392,40 +392,56 @@ Focus ONLY on technical, architectural, debugging, decision, workflow, and proje
   }
 
   /**
-   * Curate using Anthropic SDK (in-process mode)
-   * Requires @anthropic-ai/sdk to be installed
+   * Curate using Anthropic SDK with parsed session messages
+   * Takes the actual conversation messages in API format
    */
   async curateWithSDK(
-    conversationContext: string,
+    messages: Array<{ role: 'user' | 'assistant'; content: string | any[] }>,
     triggerType: CurationTrigger = 'session_end'
   ): Promise<CurationResult> {
     if (!this._config.apiKey) {
-      throw new Error('API key required for SDK mode')
+      throw new Error('API key required for SDK mode. Set ANTHROPIC_API_KEY environment variable.')
     }
 
     // Dynamic import to make SDK optional
     const { default: Anthropic } = await import('@anthropic-ai/sdk')
     const client = new Anthropic({ apiKey: this._config.apiKey })
 
-    const prompt = this.buildCurationPrompt(triggerType)
+    const systemPrompt = this.buildCurationPrompt(triggerType)
+
+    // Build the conversation: original messages + curation request
+    const conversationMessages = [
+      ...messages,
+      {
+        role: 'user' as const,
+        content: 'This session has ended. Please curate the memories from our conversation according to your system instructions. Return ONLY the JSON structure with no additional text.',
+      },
+    ]
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 8192,
-      messages: [
-        {
-          role: 'user',
-          content: `${conversationContext}\n\n---\n\n${prompt}`,
-        },
-      ],
+      system: systemPrompt,
+      messages: conversationMessages,
     })
 
     const content = response.content[0]
     if (content.type !== 'text') {
-      throw new Error('Unexpected response type')
+      throw new Error('Unexpected response type from Claude API')
     }
 
     return this.parseCurationResponse(content.text)
+  }
+
+  /**
+   * Curate from a parsed session segment
+   * Convenience method that extracts messages from SessionSegment
+   */
+  async curateFromSegment(
+    segment: { messages: Array<{ role: 'user' | 'assistant'; content: string | any[] }> },
+    triggerType: CurationTrigger = 'session_end'
+  ): Promise<CurationResult> {
+    return this.curateWithSDK(segment.messages, triggerType)
   }
 
   /**

@@ -23,6 +23,7 @@ ${c.bold('Commands:')}
   ${c.command('serve')}      Start the memory server ${c.muted('(default)')}
   ${c.command('stats')}      Show memory statistics
   ${c.command('install')}    Set up hooks ${c.muted('(--claude or --gemini)')}
+  ${c.command('ingest')}     Ingest historical sessions into memory ${c.muted('(--project or --all)')}
   ${c.command('migrate')}    Upgrade memories to latest schema version
   ${c.command('doctor')}     Check system health
   ${c.command('help')}       Show this help message
@@ -43,9 +44,10 @@ ${fmt.cmd('memory serve --port 9000')}  ${c.muted('# Start on custom port')}
 ${fmt.cmd('memory stats')}              ${c.muted('# Show memory statistics')}
 ${fmt.cmd('memory install')}            ${c.muted('# Install Claude Code hooks (default)')}
 ${fmt.cmd('memory install --gemini')}   ${c.muted('# Install Gemini CLI hooks')}
+${fmt.cmd('memory ingest --project foo')}  ${c.muted('# Ingest sessions from a project')}
+${fmt.cmd('memory ingest --all --dry-run')}  ${c.muted('# Preview all sessions to ingest')}
 ${fmt.cmd('memory migrate')}            ${c.muted('# Upgrade memories to v2 schema')}
 ${fmt.cmd('memory migrate --dry-run')}  ${c.muted('# Preview migration without changes')}
-${fmt.cmd('memory migrate --embeddings')}  ${c.muted('# Regenerate embeddings for all memories')}
 
 ${c.muted('Documentation: https://github.com/RLabs-Inc/memory')}
 `)
@@ -76,6 +78,10 @@ async function main() {
       'dry-run': { type: 'boolean', default: false },
       embeddings: { type: 'boolean', default: false },  // Regenerate embeddings in migrate
       path: { type: 'string' },  // Custom path for migrate
+      project: { type: 'string' },  // Project to ingest
+      all: { type: 'boolean', default: false },  // Ingest all projects
+      limit: { type: 'string' },  // Limit sessions per project
+      'max-tokens': { type: 'string' },  // Max tokens per segment
     },
     allowPositionals: true,
     strict: false,  // Allow unknown options for subcommands
@@ -133,6 +139,19 @@ async function main() {
         verbose: values.verbose,
         path: values.path,
         embeddings: values.embeddings,
+      })
+      break
+    }
+
+    case 'ingest': {
+      const { ingest } = await import('./commands/ingest.ts')
+      await ingest({
+        project: values.project,
+        all: values.all,
+        dryRun: values['dry-run'],
+        verbose: values.verbose,
+        limit: values.limit ? parseInt(values.limit, 10) : undefined,
+        maxTokens: values['max-tokens'] ? parseInt(values['max-tokens'], 10) : undefined,
       })
       break
     }
