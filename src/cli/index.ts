@@ -23,6 +23,7 @@ ${c.bold('Commands:')}
   ${c.command('serve')}      Start the memory server ${c.muted('(default)')}
   ${c.command('stats')}      Show memory statistics
   ${c.command('install')}    Set up hooks ${c.muted('(--claude or --gemini)')}
+  ${c.command('migrate')}    Upgrade memories to latest schema version
   ${c.command('doctor')}     Check system health
   ${c.command('help')}       Show this help message
 
@@ -30,6 +31,8 @@ ${c.bold('Options:')}
   ${c.cyan('-p, --port')} <port>    Server port ${c.muted('(default: 8765)')}
   ${c.cyan('-v, --verbose')}        Verbose output
   ${c.cyan('-q, --quiet')}          Minimal output
+  ${c.cyan('--dry-run')}            Preview changes without applying ${c.muted('(migrate)')}
+  ${c.cyan('--embeddings')}         Regenerate embeddings for memories ${c.muted('(migrate)')}
   ${c.cyan('--claude')}             Install hooks for Claude Code
   ${c.cyan('--gemini')}             Install hooks for Gemini CLI
   ${c.cyan('--version')}            Show version
@@ -40,6 +43,9 @@ ${fmt.cmd('memory serve --port 9000')}  ${c.muted('# Start on custom port')}
 ${fmt.cmd('memory stats')}              ${c.muted('# Show memory statistics')}
 ${fmt.cmd('memory install')}            ${c.muted('# Install Claude Code hooks (default)')}
 ${fmt.cmd('memory install --gemini')}   ${c.muted('# Install Gemini CLI hooks')}
+${fmt.cmd('memory migrate')}            ${c.muted('# Upgrade memories to v2 schema')}
+${fmt.cmd('memory migrate --dry-run')}  ${c.muted('# Preview migration without changes')}
+${fmt.cmd('memory migrate --embeddings')}  ${c.muted('# Regenerate embeddings for all memories')}
 
 ${c.muted('Documentation: https://github.com/RLabs-Inc/memory')}
 `)
@@ -67,6 +73,9 @@ async function main() {
       force: { type: 'boolean', default: false },
       claude: { type: 'boolean', default: false },
       gemini: { type: 'boolean', default: false },
+      'dry-run': { type: 'boolean', default: false },
+      embeddings: { type: 'boolean', default: false },  // Regenerate embeddings in migrate
+      path: { type: 'string' },  // Custom path for migrate
     },
     allowPositionals: true,
     strict: false,  // Allow unknown options for subcommands
@@ -113,6 +122,18 @@ async function main() {
     case 'check': {
       const { doctor } = await import('./commands/doctor.ts')
       await doctor(values)
+      break
+    }
+
+    case 'migrate':
+    case 'upgrade': {
+      const { migrate } = await import('./commands/migrate.ts')
+      await migrate({
+        dryRun: values['dry-run'],
+        verbose: values.verbose,
+        path: values.path,
+        embeddings: values.embeddings,
+      })
       break
     }
 

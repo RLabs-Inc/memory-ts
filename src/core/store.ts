@@ -6,21 +6,25 @@
 import { createDatabase, type Database, type PersistentCollection } from '@rlabs-inc/fsdb'
 import { homedir } from 'os'
 import { join } from 'path'
-import type {
-  CuratedMemory,
-  StoredMemory,
-  SessionSummary,
-  ProjectSnapshot,
+import {
+  type CuratedMemory,
+  type StoredMemory,
+  type SessionSummary,
+  type ProjectSnapshot,
+  V2_DEFAULTS,
 } from '../types/memory.ts'
 import {
   memorySchema,
   sessionSummarySchema,
   projectSnapshotSchema,
   sessionSchema,
+  managementLogSchema,
+  MEMORY_SCHEMA_VERSION,
   type MemorySchema,
   type SessionSummarySchema,
   type ProjectSnapshotSchema,
   type SessionSchema,
+  type ManagementLogSchema,
 } from '../types/schema.ts'
 
 /**
@@ -33,6 +37,13 @@ export interface StoreConfig {
    * Each project gets its own subdirectory
    */
   basePath?: string
+
+  /**
+   * Path for global memories (shared across all projects)
+   * Default: ~/.local/share/memory/global
+   * Global memories are ALWAYS stored centrally, even in local mode
+   */
+  globalPath?: string
 
   /**
    * Whether to watch for file changes
@@ -53,17 +64,340 @@ interface ProjectDB {
 }
 
 /**
+ * Global database with collections (shared across all projects)
+ */
+interface GlobalDB {
+  db: Database
+  memories: PersistentCollection<typeof memorySchema>
+  managementLogs: PersistentCollection<typeof managementLogSchema>
+}
+
+/**
+ * Personal primer structure
+ */
+export interface PersonalPrimer {
+  content: string
+  updated: number // timestamp
+}
+
+/**
+ * Special ID for the personal primer record
+ */
+const PERSONAL_PRIMER_ID = 'personal-primer'
+
+/**
+ * Default central path for global memories
+ * Global memories are ALWAYS stored here, even in local mode
+ */
+const DEFAULT_GLOBAL_PATH = join(homedir(), '.local', 'share', 'memory', 'global')
+
+/**
  * MemoryStore - Manages per-project fsDB instances
  */
 export class MemoryStore {
   private _config: Required<StoreConfig>
   private _projects = new Map<string, ProjectDB>()
+  private _global: GlobalDB | null = null
 
   constructor(config: StoreConfig = {}) {
     this._config = {
       basePath: config.basePath ?? join(homedir(), '.local', 'share', 'memory'),
+      // Global path is ALWAYS central, never local
+      globalPath: config.globalPath ?? DEFAULT_GLOBAL_PATH,
       watchFiles: config.watchFiles ?? false,
     }
+  }
+
+  // ================================================================
+  // GLOBAL DATABASE OPERATIONS
+  // ================================================================
+
+  /**
+   * Get or create the global database (shared across all projects)
+   * Global is ALWAYS in central location, even when using local mode for projects
+   */
+  async getGlobal(): Promise<GlobalDB> {
+    if (this._global) {
+      return this._global
+    }
+
+    // Use the configured global path (always central)
+    const globalPath = this._config.globalPath
+    console.log(`🌐 [DEBUG] Initializing global database at ${globalPath}`)
+
+    const db = createDatabase({
+      name: 'global',
+      basePath: globalPath,
+    })
+
+    // Global memories collection (personal, philosophy, preferences, general breakthroughs)
+    const memories = db.collection('memories', {
+      schema: memorySchema,
+      contentColumn: 'content',
+      autoSave: true,
+      watchFiles: this._config.watchFiles,
+    })
+
+    // Management log collection (tracks management agent activity)
+    const managementLogs = db.collection('management-logs', {
+      schema: managementLogSchema,
+      contentColumn: 'summary',
+      autoSave: true,
+      watchFiles: this._config.watchFiles,
+    })
+
+    await Promise.all([memories.load(), managementLogs.load()])
+
+    this._global = { db, memories, managementLogs }
+    return this._global
+  }
+
+  /**
+   * Get all global memories
+   */
+  async getGlobalMemories(): Promise<StoredMemory[]> {
+    const { memories } = await this.getGlobal()
+
+    return memories.all().map(record => ({
+      id: record.id,
+      content: record.content,
+      reasoning: record.reasoning,
+      importance_weight: record.importance_weight,
+      confidence_score: record.confidence_score,
+      context_type: record.context_type as StoredMemory['context_type'],
+      temporal_relevance: record.temporal_relevance as StoredMemory['temporal_relevance'],
+      knowledge_domain: record.knowledge_domain as StoredMemory['knowledge_domain'],
+      emotional_resonance: record.emotional_resonance as StoredMemory['emotional_resonance'],
+      action_required: record.action_required,
+      problem_solution_pair: record.problem_solution_pair,
+      semantic_tags: record.semantic_tags,
+      trigger_phrases: record.trigger_phrases,
+      question_types: record.question_types,
+      session_id: record.session_id,
+      project_id: 'global',
+      embedding: record.embedding ?? undefined,
+      created_at: record.created,
+      updated_at: record.updated,
+      stale: record.stale,
+    }))
+  }
+
+  /**
+   * Store a global memory (personal, philosophy, preference, etc.)
+   * Global memories are ALWAYS scope: 'global' and have their own type defaults
+   */
+  async storeGlobalMemory(
+    sessionId: string,
+    memory: CuratedMemory,
+    embedding?: Float32Array | number[],
+    sessionNumber?: number
+  ): Promise<string> {
+    const { memories } = await this.getGlobal()
+
+    // Get type-specific defaults (personal, philosophy, preference tend to be eternal)
+    const contextType = memory.context_type ?? 'personal'
+    const typeDefaults = V2_DEFAULTS.typeDefaults[contextType] ?? V2_DEFAULTS.typeDefaults.personal
+
+    const id = memories.insert({
+      // Core v1 fields
+      content: memory.content,
+      reasoning: memory.reasoning,
+      importance_weight: memory.importance_weight,
+      confidence_score: memory.confidence_score,
+      context_type: memory.context_type,
+      temporal_relevance: memory.temporal_relevance,
+      knowledge_domain: memory.knowledge_domain,
+      emotional_resonance: memory.emotional_resonance,
+      action_required: memory.action_required,
+      problem_solution_pair: memory.problem_solution_pair,
+      semantic_tags: memory.semantic_tags,
+      trigger_phrases: memory.trigger_phrases,
+      question_types: memory.question_types,
+      session_id: sessionId,
+      project_id: 'global',
+      embedding: embedding
+        ? (embedding instanceof Float32Array ? embedding : new Float32Array(embedding))
+        : null,
+
+      // v2 lifecycle fields - global memories are always scope: 'global'
+      status: V2_DEFAULTS.fallback.status,
+      scope: 'global',  // Always global for global memories
+      temporal_class: memory.temporal_class ?? typeDefaults?.temporal_class ?? 'eternal',
+      fade_rate: typeDefaults?.fade_rate ?? 0,  // Global memories typically don't fade
+      session_created: sessionNumber ?? 0,
+      session_updated: sessionNumber ?? 0,
+      sessions_since_surfaced: 0,
+      domain: memory.domain ?? null,
+      feature: memory.feature ?? null,
+      related_files: memory.related_files ?? [],
+      awaiting_implementation: memory.awaiting_implementation ?? false,
+      awaiting_decision: memory.awaiting_decision ?? false,
+      retrieval_weight: memory.importance_weight,
+      exclude_from_retrieval: false,
+      schema_version: MEMORY_SCHEMA_VERSION,
+
+      // Initialize empty relationship fields
+      supersedes: null,
+      superseded_by: null,
+      related_to: [],
+      resolves: [],
+      resolved_by: null,
+      parent_id: null,
+      child_ids: [],
+      blocked_by: null,
+      blocks: [],
+    })
+
+    return id
+  }
+
+  // ================================================================
+  // PERSONAL PRIMER OPERATIONS
+  // ================================================================
+
+  /**
+   * Get the personal primer content
+   * Returns null if no primer exists yet (grows organically with personal memories)
+   */
+  async getPersonalPrimer(): Promise<PersonalPrimer | null> {
+    const { memories } = await this.getGlobal()
+
+    // Personal primer is stored as a special memory record
+    const primer = memories.get(PERSONAL_PRIMER_ID)
+    if (!primer) {
+      return null
+    }
+
+    return {
+      content: primer.content,
+      updated: primer.updated,
+    }
+  }
+
+  /**
+   * Update the personal primer
+   * Creates it if it doesn't exist
+   */
+  async setPersonalPrimer(content: string): Promise<void> {
+    const { memories } = await this.getGlobal()
+
+    const existing = memories.get(PERSONAL_PRIMER_ID)
+    if (existing) {
+      memories.update(PERSONAL_PRIMER_ID, { content })
+    } else {
+      // Create the primer as a special memory record
+      memories.insert({
+        id: PERSONAL_PRIMER_ID,
+        content,
+        reasoning: 'Personal relationship context injected at session start',
+        importance_weight: 1.0,
+        confidence_score: 1.0,
+        context_type: 'personal',
+        temporal_relevance: 'persistent',
+        knowledge_domain: 'personal',
+        emotional_resonance: 'neutral',
+        action_required: false,
+        problem_solution_pair: false,
+        semantic_tags: ['personal', 'primer', 'relationship'],
+        trigger_phrases: [],
+        question_types: [],
+        session_id: 'system',
+        project_id: 'global',
+        embedding: null,
+      })
+    }
+  }
+
+  /**
+   * Check if personal memories are enabled
+   * For now, always returns true. Later can be configured.
+   */
+  isPersonalMemoriesEnabled(): boolean {
+    // TODO: Read from config file if needed
+    return true
+  }
+
+  // ================================================================
+  // MANAGEMENT LOG OPERATIONS
+  // ================================================================
+
+  /**
+   * Store a management log entry
+   * Stores complete data with no truncation
+   */
+  async storeManagementLog(entry: {
+    projectId: string
+    sessionNumber: number
+    memoriesProcessed: number
+    supersededCount: number
+    resolvedCount: number
+    linkedCount: number
+    primerUpdated: boolean
+    success: boolean
+    durationMs: number
+    summary: string
+    fullReport?: string
+    error?: string
+    details?: Record<string, any>
+  }): Promise<string> {
+    const { managementLogs } = await this.getGlobal()
+
+    const id = managementLogs.insert({
+      project_id: entry.projectId,
+      session_number: entry.sessionNumber,
+      memories_processed: entry.memoriesProcessed,
+      superseded_count: entry.supersededCount,
+      resolved_count: entry.resolvedCount,
+      linked_count: entry.linkedCount,
+      primer_updated: entry.primerUpdated,
+      success: entry.success,
+      duration_ms: entry.durationMs,
+      summary: entry.summary,
+      full_report: entry.fullReport ?? '',
+      error: entry.error ?? '',
+      details: entry.details ? JSON.stringify(entry.details) : '',
+    })
+
+    return id
+  }
+
+  /**
+   * Get recent management logs
+   */
+  async getManagementLogs(limit: number = 10): Promise<Array<{
+    id: string
+    projectId: string
+    sessionNumber: number
+    memoriesProcessed: number
+    supersededCount: number
+    resolvedCount: number
+    linkedCount: number
+    primerUpdated: boolean
+    success: boolean
+    durationMs: number
+    summary: string
+    createdAt: number
+  }>> {
+    const { managementLogs } = await this.getGlobal()
+
+    return managementLogs
+      .all()
+      .sort((a, b) => b.created - a.created)
+      .slice(0, limit)
+      .map(record => ({
+        id: record.id,
+        projectId: record.project_id,
+        sessionNumber: record.session_number,
+        memoriesProcessed: record.memories_processed,
+        supersededCount: record.superseded_count,
+        resolvedCount: record.resolved_count,
+        linkedCount: record.linked_count,
+        primerUpdated: record.primer_updated,
+        success: record.success,
+        durationMs: record.duration_ms,
+        summary: record.summary,
+        createdAt: record.created,
+      }))
   }
 
   /**
@@ -131,17 +465,23 @@ export class MemoryStore {
   // ================================================================
 
   /**
-   * Store a curated memory
+   * Store a curated memory with v2 lifecycle fields
    */
   async storeMemory(
     projectId: string,
     sessionId: string,
     memory: CuratedMemory,
-    embedding?: Float32Array | number[]
+    embedding?: Float32Array | number[],
+    sessionNumber?: number
   ): Promise<string> {
     const { memories } = await this.getProject(projectId)
 
+    // Get type-specific defaults
+    const contextType = memory.context_type ?? 'general'
+    const typeDefaults = V2_DEFAULTS.typeDefaults[contextType] ?? V2_DEFAULTS.typeDefaults.technical
+
     const id = memories.insert({
+      // Core v1 fields
       content: memory.content,
       reasoning: memory.reasoning,
       importance_weight: memory.importance_weight,
@@ -160,6 +500,34 @@ export class MemoryStore {
       embedding: embedding
         ? (embedding instanceof Float32Array ? embedding : new Float32Array(embedding))
         : null,
+
+      // v2 lifecycle fields - use curator-provided values or smart defaults
+      status: V2_DEFAULTS.fallback.status,
+      scope: memory.scope ?? typeDefaults?.scope ?? V2_DEFAULTS.fallback.scope,
+      temporal_class: memory.temporal_class ?? typeDefaults?.temporal_class ?? V2_DEFAULTS.fallback.temporal_class,
+      fade_rate: typeDefaults?.fade_rate ?? V2_DEFAULTS.fallback.fade_rate,
+      session_created: sessionNumber ?? 0,
+      session_updated: sessionNumber ?? 0,
+      sessions_since_surfaced: 0,
+      domain: memory.domain ?? null,
+      feature: memory.feature ?? null,
+      related_files: memory.related_files ?? [],
+      awaiting_implementation: memory.awaiting_implementation ?? false,
+      awaiting_decision: memory.awaiting_decision ?? false,
+      retrieval_weight: memory.importance_weight,  // Start with importance as retrieval weight
+      exclude_from_retrieval: false,
+      schema_version: MEMORY_SCHEMA_VERSION,
+
+      // Initialize empty relationship fields
+      supersedes: null,
+      superseded_by: null,
+      related_to: [],
+      resolves: [],
+      resolved_by: null,
+      parent_id: null,
+      child_ids: [],
+      blocked_by: null,
+      blocks: [],
     })
 
     return id
@@ -498,13 +866,20 @@ export class MemoryStore {
   }
 
   /**
-   * Close all project databases
+   * Close all project databases (including global)
    */
   close(): void {
+    // Close project databases
     for (const projectDB of this._projects.values()) {
       projectDB.db.close()
     }
     this._projects.clear()
+
+    // Close global database
+    if (this._global) {
+      this._global.db.close()
+      this._global = null
+    }
   }
 }
 

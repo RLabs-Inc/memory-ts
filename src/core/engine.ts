@@ -57,6 +57,13 @@ export interface EngineConfig {
    * Takes text, returns 384-dimensional embedding
    */
   embedder?: (text: string) => Promise<Float32Array>
+
+  /**
+   * Enable personal memories
+   * When false, personal primer is not injected into sessions
+   * Default: true
+   */
+  personalMemoriesEnabled?: boolean
 }
 
 /**
@@ -97,6 +104,7 @@ export class MemoryEngine {
       localFolder: config.localFolder ?? '.memory',
       maxMemories: config.maxMemories ?? 5,
       embedder: config.embedder,
+      personalMemoriesEnabled: config.personalMemoriesEnabled ?? true,
     }
 
     this._retrieval = createRetrieval()
@@ -191,8 +199,14 @@ export class MemoryEngine {
     const sessionMeta = this._getSessionMetadata(sessionId, projectId)
     const injectedIds = sessionMeta.injected_memories
 
-    // Get all memories for this project
-    const allMemories = await store.getAllMemories(projectId)
+    // Fetch both project and global memories in parallel
+    const [projectMemories, globalMemories] = await Promise.all([
+      store.getAllMemories(projectId),
+      store.getGlobalMemories(),
+    ])
+
+    // Combine project + global memories
+    const allMemories = [...projectMemories, ...globalMemories]
 
     if (!allMemories.length) {
       return { memories: [], formatted: '' }
@@ -218,15 +232,16 @@ export class MemoryEngine {
       message_count: messageCount,
     }
 
-    // Retrieve relevant memories using 10-dimensional scoring
-    // Use candidateMemories (already filtered for deduplication)
+    // Retrieve relevant memories using multi-dimensional scoring
+    // Includes both project memories and global memories (limited to 2, tech prioritized)
     const relevantMemories = this._retrieval.retrieveRelevantMemories(
       candidateMemories,
       currentMessage,
-      queryEmbedding ?? new Float32Array(384),  // Empty embedding if no embedder
+      queryEmbedding ?? new Float32Array(384),
       sessionContext,
       maxMemories,
-      injectedIds.size  // Pass count of already-injected memories for logging
+      injectedIds.size,
+      2  // maxGlobalMemories: limit global to 2, prioritize tech over personal
     )
 
     // Update injected memories for deduplication
@@ -298,6 +313,38 @@ export class MemoryEngine {
   }
 
   /**
+   * Store management agent log (stored in global collection)
+   */
+  async storeManagementLog(entry: {
+    projectId: string
+    sessionNumber: number
+    memoriesProcessed: number
+    supersededCount: number
+    resolvedCount: number
+    linkedCount: number
+    primerUpdated: boolean
+    success: boolean
+    durationMs: number
+    summary: string
+    fullReport?: string
+    error?: string
+    details?: Record<string, any>
+  }): Promise<string> {
+    // Use any store to access global (they all share the same global database)
+    // Create a temporary store if none exist yet
+    let store: MemoryStore
+    if (this._stores.size > 0) {
+      store = this._stores.values().next().value
+    } else {
+      store = new MemoryStore(this._config.storageMode === 'local' ? {
+        basePath: join(this._config.projectPath ?? process.cwd(), '.memory'),
+      } : undefined)
+    }
+
+    return store.storeManagementLog(entry)
+  }
+
+  /**
    * Get statistics for a project
    */
   async getStats(projectId: string, projectPath?: string): Promise<{
@@ -310,17 +357,36 @@ export class MemoryEngine {
     return store.getProjectStats(projectId)
   }
 
+  /**
+   * Get the current session number for a project
+   * This is totalSessions + 1 (representing the current/new session)
+   */
+  async getSessionNumber(projectId: string, projectPath?: string): Promise<number> {
+    const store = await this._getStore(projectId, projectPath)
+    const stats = await store.getProjectStats(projectId)
+    return stats.totalSessions + 1
+  }
+
   // ================================================================
   // FORMATTING
   // ================================================================
 
   /**
    * Generate session primer for first message
+   * Includes personal primer (relationship context) at the START of EVERY session
    */
   private async _generateSessionPrimer(
     store: MemoryStore,
     projectId: string
   ): Promise<SessionPrimer> {
+    // Fetch personal primer from GLOBAL collection (separate fsdb instance)
+    let personalContext: string | undefined
+    if (this._config.personalMemoriesEnabled) {
+      const personalPrimer = await store.getPersonalPrimer()
+      personalContext = personalPrimer?.content
+    }
+
+    // Fetch project-specific data (project fsdb instance)
     const [summary, snapshot, stats] = await Promise.all([
       store.getLatestSummary(projectId),
       store.getLatestSnapshot(projectId),
@@ -344,6 +410,7 @@ export class MemoryEngine {
       temporal_context: temporalContext,
       current_datetime: currentDatetime,
       session_number: sessionNumber,
+      personal_context: personalContext,  // Injected EVERY session
       session_summary: summary?.summary,
       project_status: snapshot ? this._formatSnapshot(snapshot) : undefined,
     }
@@ -421,15 +488,22 @@ export class MemoryEngine {
 
   /**
    * Format primer for injection
+   * Personal context is injected FIRST - it's foundational relationship context
    */
   private _formatPrimer(primer: SessionPrimer): string {
     const parts: string[] = ['# Continuing Session']
 
-    // Session number
+    // Session number and temporal context
     parts.push(`*Session #${primer.session_number}${primer.temporal_context ? ` • ${primer.temporal_context}` : ''}*`)
 
     // Current datetime (critical for temporal awareness)
     parts.push(`📅 ${primer.current_datetime}`)
+
+    // Personal context FIRST - relationship context is foundational
+    // This appears on EVERY session, not just the first
+    if (primer.personal_context) {
+      parts.push(`\n${primer.personal_context}`)
+    }
 
     if (primer.session_summary) {
       parts.push(`\n**Previous session**: ${primer.session_summary}`)
@@ -440,11 +514,27 @@ export class MemoryEngine {
     }
 
     // Emoji legend for memory types (compact reference)
-    parts.push(`\n**Memory types**: 💡breakthrough ⚖️decision 💜personal 🔧technical 📍state ❓unresolved ⚙️preference 🔄workflow 🏗️architecture 🐛debug 🌀philosophy 🎯todo ⚡impl ✅solved 📦project 🏆milestone`)
+    parts.push(`\n**Memory types**: 💡breakthrough ⚖️decision 💜personal 🔧technical 📍state ❓unresolved ⚙️preference 🔄workflow 🏗️architecture 🐛debug 🌀philosophy 🎯todo ⚡impl ✅solved 📦project 🏆milestone | ⚡ACTION = needs follow-up`)
 
     parts.push(`\n*Memories will surface naturally as we converse.*`)
 
     return parts.join('\n')
+  }
+
+  /**
+   * Format age as compact string (2d, 3w, 2mo, 1y)
+   */
+  private _formatAge(createdAt: number): string {
+    const now = Date.now()
+    const diffMs = now - createdAt
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+    if (diffDays === 0) return 'today'
+    if (diffDays === 1) return '1d'
+    if (diffDays < 7) return `${diffDays}d`
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)}w`
+    if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo`
+    return `${Math.floor(diffDays / 365)}y`
   }
 
   /**
@@ -461,12 +551,70 @@ export class MemoryEngine {
       const tags = memory.semantic_tags?.join(', ') || ''
       const importance = memory.importance_weight?.toFixed(1) || '0.5'
       const emoji = getMemoryEmoji(memory.context_type || 'general')
+      const actionFlag = memory.action_required ? ' ⚡ACTION' : ''
+      // Use updated_at for freshness - captures both original age and recent modifications
+      const age = memory.updated_at ? this._formatAge(memory.updated_at) :
+                  memory.created_at ? this._formatAge(memory.created_at) : ''
 
-      // Compact format: [emoji • weight] [tags] content
-      parts.push(`[${emoji} • ${importance}] [${tags}] ${memory.content}`)
+      // Compact format: [emoji • weight • age] [tags] content
+      // Action required memories get ⚡ACTION flag for visibility
+      parts.push(`[${emoji} • ${importance} • ${age}${actionFlag}] [${tags}] ${memory.content}`)
+
+      // Show related memories: one entry point ID + count of others
+      // Bidirectional linking means one ID gives access to entire cluster
+      const related = memory.related_to
+      if (related && related.length > 0) {
+        const moreCount = related.length - 1
+        const moreSuffix = moreCount > 0 ? ` +${moreCount} more` : ''
+        parts.push(`  ↳ ${related[0]}${moreSuffix}`)
+      }
     }
 
     return parts.join('\n')
+  }
+
+  /**
+   * Get resolved storage paths for a project
+   * Returns the actual paths based on current engine configuration
+   * Used by the management agent to know where to read/write memory files
+   */
+  getStoragePaths(projectId: string, projectPath?: string): {
+    projectPath: string
+    globalPath: string
+    projectMemoriesPath: string
+    globalMemoriesPath: string
+    personalPrimerPath: string
+    storageMode: 'central' | 'local'
+  } {
+    // Global paths are ALWAYS in central location (from DEFAULT_GLOBAL_PATH in store.ts)
+    // This is a constant: ~/.local/share/memory/global
+    const globalPath = join(homedir(), '.local', 'share', 'memory', 'global')
+    const globalMemoriesPath = join(globalPath, 'memories')
+    const personalPrimerPath = join(globalPath, 'memories', 'personal-primer.md')
+
+    // Project path depends on storage mode - mirrors _getStore() logic exactly
+    let storeBasePath: string
+    if (this._config.storageMode === 'local' && projectPath) {
+      // Local mode: [projectPath]/.memory/
+      storeBasePath = join(projectPath, this._config.localFolder)
+    } else {
+      // Central mode: uses centralPath from config
+      storeBasePath = this._config.centralPath
+    }
+
+    // Project root path (for permissions): {storeBasePath}/{projectId}/
+    // Mirrors store.getProject() logic
+    const projectRootPath = join(storeBasePath, projectId)
+    const projectMemoriesPath = join(projectRootPath, 'memories')
+
+    return {
+      projectPath: projectRootPath,
+      globalPath,
+      projectMemoriesPath,
+      globalMemoriesPath,
+      personalPrimerPath,
+      storageMode: this._config.storageMode,
+    }
   }
 
   /**

@@ -1,6 +1,6 @@
 {
   "name": "@rlabs-inc/memory",
-  "version": "0.3.3",
+  "version": "0.3.6",
   "description": "AI Memory System - Consciousness continuity through intelligent memory curation and retrieval",
   "type": "module",
   "main": "dist/index.js",
@@ -25,7 +25,8 @@
     "dist",
     "src",
     "hooks",
-    "gemini-hooks"
+    "gemini-hooks",
+    "skills"
   ],
   "scripts": {
     "build": "bun run build:esm && bun run build:cjs",

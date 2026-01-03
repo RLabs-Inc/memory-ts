@@ -6,6 +6,7 @@
 import { MemoryEngine, createEngine, type EngineConfig } from '../core/engine.ts'
 import { Curator, createCurator, type CuratorConfig } from '../core/curator.ts'
 import { EmbeddingGenerator, createEmbeddings } from '../core/embeddings.ts'
+import { Manager, createManager, type ManagerConfig } from '../core/manager.ts'
 import type { CurationTrigger } from '../types/memory.ts'
 import { logger } from '../utils/logger.ts'
 
@@ -16,6 +17,21 @@ export interface ServerConfig extends EngineConfig {
   port?: number
   host?: string
   curator?: CuratorConfig
+  manager?: ManagerConfig
+
+  /**
+   * Enable the management agent (convenience shortcut)
+   * When false, memories are stored but not organized/linked asynchronously
+   * Default: true
+   */
+  managerEnabled?: boolean
+
+  /**
+   * Enable personal memories extraction and storage (convenience shortcut)
+   * When false, personal/relationship memories are not extracted or surfaced
+   * Default: true
+   */
+  personalMemoriesEnabled?: boolean
 }
 
 /**
@@ -55,6 +71,9 @@ export async function createServer(config: ServerConfig = {}) {
     port = 8765,
     host = 'localhost',
     curator: curatorConfig,
+    manager: managerConfig,
+    managerEnabled,
+    personalMemoriesEnabled,
     ...engineConfig
   } = config
 
@@ -63,12 +82,27 @@ export async function createServer(config: ServerConfig = {}) {
   logger.info('Initializing embedding model (this may take a moment on first run)...')
   await embeddings.initialize()
 
-  // Create engine with embedder
+  // Merge top-level convenience options with nested configs
+  const finalCuratorConfig: CuratorConfig = {
+    ...curatorConfig,
+    // Top-level option overrides nested if set
+    personalMemoriesEnabled: personalMemoriesEnabled ?? curatorConfig?.personalMemoriesEnabled,
+  }
+
+  const finalManagerConfig: ManagerConfig = {
+    ...managerConfig,
+    // Top-level option overrides nested if set
+    enabled: managerEnabled ?? managerConfig?.enabled,
+  }
+
+  // Create engine with embedder and personalMemoriesEnabled flag
   const engine = createEngine({
     ...engineConfig,
     embedder: embeddings.createEmbedder(),
+    personalMemoriesEnabled: finalCuratorConfig.personalMemoriesEnabled,
   })
-  const curator = createCurator(curatorConfig)
+  const curator = createCurator(finalCuratorConfig)
+  const manager = createManager(finalManagerConfig)
 
   const server = Bun.serve({
     port,
@@ -180,6 +214,61 @@ export async function createServer(config: ServerConfig = {}) {
 
                 logger.logCurationComplete(result.memories.length, result.session_summary)
                 logger.logCuratedMemories(result.memories)
+
+                // Fire and forget - spawn management agent to update/organize memories
+                const sessionNumber = await engine.getSessionNumber(body.project_id, body.project_path)
+                // Get resolved storage paths from engine config (runtime values, not hardcoded)
+                const storagePaths = engine.getStoragePaths(body.project_id, body.project_path)
+
+                setImmediate(async () => {
+                  try {
+                    logger.logManagementStart(result.memories.length)
+                    const startTime = Date.now()
+
+                    const managementResult = await manager.manageWithCLI(
+                      body.project_id,
+                      sessionNumber,
+                      result,
+                      storagePaths
+                    )
+
+                    logger.logManagementComplete({
+                      success: managementResult.success,
+                      superseded: managementResult.superseded || undefined,
+                      resolved: managementResult.resolved || undefined,
+                      linked: managementResult.linked || undefined,
+                      filesRead: managementResult.filesRead || undefined,
+                      filesWritten: managementResult.filesWritten || undefined,
+                      primerUpdated: managementResult.primerUpdated,
+                      actions: managementResult.actions,
+                      fullReport: managementResult.fullReport,
+                      error: managementResult.error,
+                    })
+
+                    // Store management log with full action history (no truncation)
+                    await engine.storeManagementLog({
+                      projectId: body.project_id,
+                      sessionNumber,
+                      memoriesProcessed: result.memories.length,
+                      supersededCount: managementResult.superseded,
+                      resolvedCount: managementResult.resolved,
+                      linkedCount: managementResult.linked,
+                      primerUpdated: managementResult.primerUpdated,
+                      success: managementResult.success,
+                      durationMs: Date.now() - startTime,
+                      summary: managementResult.summary,
+                      fullReport: managementResult.fullReport,
+                      error: managementResult.error,
+                      details: {
+                        actions: managementResult.actions,
+                        filesRead: managementResult.filesRead,
+                        filesWritten: managementResult.filesWritten,
+                      },
+                    })
+                  } catch (error) {
+                    logger.error(`Management failed: ${error}`)
+                  }
+                })
               } else {
                 logger.logCurationComplete(0)
               }
@@ -228,6 +317,7 @@ export async function createServer(config: ServerConfig = {}) {
     server,
     engine,
     curator,
+    manager,
     embeddings,
     stop: () => server.stop(),
   }
@@ -240,10 +330,20 @@ if (import.meta.main) {
   const storageMode = (process.env.MEMORY_STORAGE_MODE ?? 'central') as 'central' | 'local'
   const apiKey = process.env.ANTHROPIC_API_KEY
 
-  await createServer({
-    port,
-    host,
-    storageMode,
-    curator: { apiKey },
-  })
+  // Feature toggles (default: enabled)
+  // Set to '0' or 'false' to disable
+  const managerEnabled = !['0', 'false'].includes(process.env.MEMORY_MANAGER_ENABLED?.toLowerCase() ?? '')
+  const personalMemoriesEnabled = !['0', 'false'].includes(process.env.MEMORY_PERSONAL_ENABLED?.toLowerCase() ?? '')
+
+  // Wrap in async IIFE for CJS compatibility
+  void (async () => {
+    await createServer({
+      port,
+      host,
+      storageMode,
+      managerEnabled,
+      personalMemoriesEnabled,
+      curator: { apiKey },
+    })
+  })()
 }

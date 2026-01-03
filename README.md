@@ -55,24 +55,72 @@ Uses `all-MiniLM-L6-v2` for 384-dimensional embeddings. Memories are retrieved b
 Sub-microsecond vector search via fsdb
 ```
 
-### 10-Dimensional Scoring
-Memories are scored across multiple dimensions:
+### Precision-First Retrieval Algorithm
+
+The retrieval system uses a two-phase scoring approach with dual gatekeepers. Philosophy: **quality over quantity, silence over noise**.
+
+**Phase 1 - Relevance (max 35%)** - Must pass 8% gatekeeper to continue
 
 | Dimension | Weight | Description |
 |-----------|--------|-------------|
-| Vector similarity | 10% | Semantic match to your message |
-| Trigger phrases | 10% | Activation patterns set by curator |
-| Tag matching | 5% | Keyword overlap |
-| Question types | 5% | "How", "why", "what" alignment |
-| Importance | 20% | Curator's assessment |
-| Temporal | 10% | Persistent vs session vs temporary |
-| Context | 10% | Technical, personal, debugging... |
-| Confidence | 10% | Curator's certainty |
-| Emotion | 10% | Joy, frustration, discovery... |
-| Problem-solution | 5% | Bug fix patterns |
+| Trigger phrases | 11% | Handcrafted activation patterns (primary signal) |
+| Vector similarity | 9% | Semantic embedding match |
+| Semantic tags | 6% | Direct keyword overlap |
+| Word overlap | 5% | Corroboration from domain, feature, reasoning |
+| Question types | 2% | How/why/what pattern matching |
+| Domain/feature | 2% | Specific area matching |
+
+**Phase 2 - Value (max 65%)** - Only calculated if relevance passes
+
+| Dimension | Weight | Description |
+|-----------|--------|-------------|
+| Importance weight | 16% | Curator's assessment (most influential) |
+| Context alignment | 10% | Context type matching message intent |
+| Confidence score | 8% | Curator's certainty |
+| Temporal score | 8% | Eternal > long-term > short-term |
+| Action required | 7% | Priority boost for actionable items |
+| Emotional resonance | 6% | Emotional context matching |
+| Problem-solution | 5% | Utility for debugging |
+| Awaiting flags | 5% | Boost for pending implementation/decisions |
+
+**Final Gatekeeper**: Total score must exceed 40% to surface. Returns nothing if nothing qualifies.
+
+### Global vs Project Memories
+
+Memories are stored in two scopes:
+
+- **Global**: Personal memories, philosophy, preferences, cross-project breakthroughs - shared across ALL projects
+- **Project**: Technical details, debugging insights, project-specific decisions - isolated per project
+
+Global memories are retrieved alongside project memories, with a maximum of 2 globals per retrieval (technical types prioritized).
 
 ### Smart Curation
 At session end (or before context compaction), the same Claude instance reviews the conversation and extracts memories. No API key needed—uses Claude Code's `--resume` flag.
+
+### Memory Manager Agent
+
+After curation, an autonomous manager agent organizes the memory store:
+
+- **Supersedes** outdated memories when new information replaces old
+- **Resolves** unresolved/todo memories when solutions emerge
+- **Links** related memories via relationship fields
+- **Updates** personal primer with new personal context
+
+The manager runs in a sandboxed environment with access only to memory storage directories.
+
+### Personal Memories Control
+
+Personal memory extraction can be disabled for shared or professional environments:
+
+```bash
+# Via environment variable
+MEMORY_PERSONAL_ENABLED=0 memory serve
+
+# Or in configuration
+personalMemoriesEnabled: false
+```
+
+When disabled, the curator skips personal/relationship context extraction.
 
 ### Session Primer
 First message of each session receives temporal context:
@@ -128,9 +176,14 @@ Compact visual representation for efficient parsing:
 │  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
 │  │   Engine    │  │  Embeddings  │  │   Curator     │  │
 │  │  (context)  │  │  (MiniLM)    │  │ (CLI resume)  │  │
-│  └──────┬──────┘  └──────────────┘  └───────────────┘  │
-│         │                                               │
-│         ▼                                               │
+│  └──────┬──────┘  └──────────────┘  └───────┬───────┘  │
+│         │                                    │          │
+│         │                                    ▼          │
+│         │                           ┌───────────────┐  │
+│         │                           │   Manager     │  │
+│         │                           │ (CLI sandbox) │  │
+│         │                           └───────┬───────┘  │
+│         ▼                                   │          │
 │  ┌─────────────────────────────────────────────────┐   │
 │  │                    fsdb                          │   │
 │  │         (markdown files + parallel arrays)       │   │
@@ -139,9 +192,12 @@ Compact visual representation for efficient parsing:
                            │
                            ▼
               ~/.local/share/memory/
-                  ├── memories/     # Curated memories as .md
-                  ├── sessions/     # Session metadata
-                  └── summaries/    # Session summaries
+                  ├── global/
+                  │   └── memories/   # Personal, philosophy (shared)
+                  └── {project-id}/
+                      ├── memories/   # Project-specific memories
+                      ├── sessions/   # Session metadata
+                      └── summaries/  # Session summaries
 ```
 
 ## Storage Format
@@ -150,17 +206,33 @@ Memories are stored as human-readable markdown with YAML frontmatter:
 
 ```markdown
 ---
+# Core fields (v1)
 importance_weight: 0.9
+confidence_score: 0.85
 context_type: technical
 temporal_relevance: persistent
-semantic_tags:
-  - embeddings
-  - vectors
-  - memory-system
-trigger_phrases:
-  - working with embeddings
-  - vector search
-embedding: [0.023, -0.041, 0.087, ...]  # 384 dimensions
+semantic_tags: [embeddings, vectors, memory-system]
+trigger_phrases: [working with embeddings, vector search]
+question_types: [how, what]
+knowledge_domain: architecture
+emotional_resonance: discovery
+
+# Lifecycle fields (v2)
+schema_version: 2
+status: active                    # active, pending, superseded, deprecated, archived
+scope: project                    # global or project
+temporal_class: long_term         # eternal, long_term, medium_term, short_term, ephemeral
+fade_rate: 0.02                   # decay per session (0 = no decay)
+domain: embeddings
+feature: vector-search
+
+# Relationships
+related_to: [memory-xyz, memory-abc]
+supersedes: memory-old-id
+superseded_by: null
+
+# Embedding (384 dimensions)
+embedding: [0.023, -0.041, 0.087, ...]
 ---
 
 Embeddings are 384-dimensional vectors generated by all-MiniLM-L6-v2.
@@ -179,15 +251,20 @@ Benefits:
 memory serve              # Start memory server (default port 8765)
 memory serve --port 9000  # Custom port
 memory serve --verbose    # Detailed logging
+memory serve --quiet      # Minimal output
 
 memory install            # Set up Claude Code hooks
 memory install --force    # Overwrite existing hooks
+memory install --gemini   # Install for Gemini CLI instead
 
 memory doctor             # Health check
 memory doctor --verbose   # Detailed diagnostics
 
 memory stats              # Show memory statistics
 memory stats --project x  # Project-specific stats
+
+memory migrate            # Upgrade memories to latest schema (v1 → v2)
+memory migrate --dry-run  # Preview changes without applying
 ```
 
 ## Environment Variables
@@ -197,6 +274,13 @@ MEMORY_PORT=8765              # Server port
 MEMORY_HOST=localhost         # Server host
 MEMORY_STORAGE_MODE=central   # 'central' or 'local'
 MEMORY_API_URL=http://localhost:8765  # For hooks
+
+# Feature toggles
+MEMORY_MANAGER_ENABLED=1      # Enable/disable memory manager agent (default: 1)
+MEMORY_PERSONAL_ENABLED=1     # Enable/disable personal memory extraction (default: 1)
+
+# Optional: for SDK curation mode (alternative to CLI mode)
+ANTHROPIC_API_KEY=sk-...      # Uses SDK instead of CLI for curation
 ```
 
 ## How It Works
@@ -206,21 +290,30 @@ When you start Claude Code, the `SessionStart` hook injects a primer with:
 - Time since last session
 - Previous session summary
 - Project status
+- Personal primer (relationship context, injected every session)
 - Current datetime for temporal awareness
 
 ### 2. Every Message
 The `UserPromptSubmit` hook:
 1. Embeds your message (~5ms)
-2. Searches stored memories using 10-dimensional scoring
-3. Filters through gatekeeper (relevance > 5%, total > 30%)
-4. Injects top matches into your message context
+2. Searches both global and project memories
+3. Applies two-phase scoring with dual gatekeepers
+4. Injects top matches (max 5 by default, max 2 global)
 
 ### 3. Session End
 The `PreCompact` or `SessionEnd` hook triggers curation:
 1. Resumes the same Claude session via CLI
 2. Claude reviews the conversation
-3. Extracts important memories with rich metadata
+3. Extracts important memories with rich metadata (v2 lifecycle fields)
 4. Stores as markdown files with embeddings
+5. Determines scope: global (personal/philosophy) vs project (technical)
+
+### 4. Memory Management (Async)
+After curation completes, the manager agent:
+1. Scans for outdated memories to supersede
+2. Resolves unresolved/todo items when solutions appear
+3. Links related memories together
+4. Updates the personal primer with new relationship context
 
 ## Requirements
 
