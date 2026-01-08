@@ -398,15 +398,107 @@ Focus ONLY on technical, architectural, debugging, decision, workflow, and proje
   }
 
   /**
-   * Curate using Anthropic SDK with parsed session messages
+   * Curate using Claude Agent SDK (no API key needed - uses Claude Code OAuth)
    * Takes the actual conversation messages in API format
    */
   async curateWithSDK(
     messages: Array<{ role: 'user' | 'assistant'; content: string | any[] }>,
     triggerType: CurationTrigger = 'session_end'
   ): Promise<CurationResult> {
+    // Dynamic import to make Agent SDK optional
+    const { query } = await import('@anthropic-ai/claude-agent-sdk')
+
+    const systemPrompt = this.buildCurationPrompt(triggerType)
+
+    // Format the conversation as a readable transcript for the prompt
+    const transcript = this._formatConversationTranscript(messages)
+
+    // Build the prompt with transcript + curation request
+    const prompt = `Here is the conversation transcript to curate:
+
+${transcript}
+
+---
+
+This session has ended. Please curate the memories from this conversation according to your system instructions. Return ONLY the JSON structure with no additional text.`
+
+    // Use Agent SDK - no API key needed, uses Claude Code OAuth
+    const q = query({
+      prompt,
+      options: {
+        systemPrompt,
+        permissionMode: 'bypassPermissions',
+        maxTurns: 1,
+        model: 'claude-opus-4-5-20251101',
+      },
+    })
+
+    // Iterate through the async generator to get the result
+    let resultText = ''
+    for await (const msg of q) {
+      if (msg.type === 'result' && 'result' in msg) {
+        resultText = msg.result
+        break
+      }
+    }
+
+    if (!resultText) {
+      return { session_summary: '', memories: [] }
+    }
+
+    return this.parseCurationResponse(resultText)
+  }
+
+  /**
+   * Format conversation messages into a readable transcript
+   */
+  private _formatConversationTranscript(
+    messages: Array<{ role: 'user' | 'assistant'; content: string | any[] }>
+  ): string {
+    const lines: string[] = []
+
+    for (const msg of messages) {
+      const role = msg.role === 'user' ? 'User' : 'Assistant'
+      let content: string
+
+      if (typeof msg.content === 'string') {
+        content = msg.content
+      } else if (Array.isArray(msg.content)) {
+        // Extract text from content blocks
+        content = msg.content
+          .filter((block: any) => block.type === 'text' && block.text)
+          .map((block: any) => block.text)
+          .join('\n')
+
+        // Also note tool uses (but don't include full details)
+        const toolUses = msg.content.filter((block: any) => block.type === 'tool_use')
+        if (toolUses.length > 0) {
+          const toolNames = toolUses.map((t: any) => t.name).join(', ')
+          content += `\n[Used tools: ${toolNames}]`
+        }
+      } else {
+        content = '[empty message]'
+      }
+
+      if (content.trim()) {
+        lines.push(`**${role}:**\n${content}\n`)
+      }
+    }
+
+    return lines.join('\n')
+  }
+
+  /**
+   * Legacy method: Curate using Anthropic SDK with API key
+   * Kept for backwards compatibility
+   * @deprecated Use curateWithSDK() which uses Agent SDK (no API key needed)
+   */
+  async curateWithAnthropicSDK(
+    messages: Array<{ role: 'user' | 'assistant'; content: string | any[] }>,
+    triggerType: CurationTrigger = 'session_end'
+  ): Promise<CurationResult> {
     if (!this._config.apiKey) {
-      throw new Error('API key required for SDK mode. Set ANTHROPIC_API_KEY environment variable.')
+      throw new Error('API key required for Anthropic SDK mode. Set ANTHROPIC_API_KEY environment variable.')
     }
 
     // Dynamic import to make SDK optional

@@ -336,6 +336,14 @@ This isn't just about remembering facts. It's about preserving:
 
 ## Changelog
 
+### v0.3.11
+- **Feature**: Agent SDK integration for curator and manager - no API key needed, uses Claude Code OAuth
+- **Feature**: `memory ingest --session <id>` to ingest a single session (useful when automatic curation fails)
+- **Feature**: Manager now runs after each session during ingestion to organize/link memories
+- **Improvement**: Spinner activity indicator during long curator and manager operations
+- **Improvement**: Better manager output with colored stats (superseded, resolved, linked)
+- **Improvement**: DEBUG logs now only show with `--verbose` flag
+
 ### v0.3.10
 - **Improvement**: Use `which claude` for universal CLI path discovery - works with any installation method (native, homebrew, npm)
 

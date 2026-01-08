@@ -8,26 +8,133 @@ import { styleText } from 'util'
 import {
   findAllSessions,
   findProjectSessions,
+  parseSessionFile,
   parseSessionFileWithSegments,
   getSessionSummary,
   calculateStats,
   type ParsedProject,
+  type ParsedSession,
 } from '../../core/session-parser.ts'
 import { Curator } from '../../core/curator.ts'
+import { Manager, type StoragePaths } from '../../core/manager.ts'
 import { MemoryStore } from '../../core/store.ts'
+import type { CurationResult, CuratedMemory } from '../../types/memory.ts'
 import { homedir } from 'os'
 import { join } from 'path'
+import { readdir, stat } from 'fs/promises'
 
 type Style = Parameters<typeof styleText>[0]
 const style = (format: Style, text: string): string => styleText(format, text)
 
+// Simple spinner for long operations
+const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
+class Spinner {
+  private interval: ReturnType<typeof setInterval> | null = null
+  private frameIndex = 0
+  private message = ''
+
+  start(message: string) {
+    this.message = message
+    this.frameIndex = 0
+    process.stdout.write(`        ${style('cyan', spinnerFrames[0])} ${style('dim', message)}`)
+    this.interval = setInterval(() => {
+      this.frameIndex = (this.frameIndex + 1) % spinnerFrames.length
+      process.stdout.write(`\r        ${style('cyan', spinnerFrames[this.frameIndex])} ${style('dim', this.message)}`)
+    }, 80)
+  }
+
+  update(message: string) {
+    this.message = message
+    process.stdout.write(`\r        ${style('cyan', spinnerFrames[this.frameIndex])} ${style('dim', this.message)}`)
+  }
+
+  stop(finalMessage?: string) {
+    if (this.interval) {
+      clearInterval(this.interval)
+      this.interval = null
+    }
+    // Clear the line and optionally write final message
+    process.stdout.write('\r' + ' '.repeat(80) + '\r')
+    if (finalMessage) {
+      console.log(finalMessage)
+    }
+  }
+}
+
 interface IngestOptions {
   project?: string
+  session?: string
   all?: boolean
   dryRun?: boolean
   verbose?: boolean
   limit?: number
   maxTokens?: number
+}
+
+/**
+ * Find a specific session by ID
+ * Searches in specified project or across all projects
+ */
+async function findSessionById(
+  sessionId: string,
+  projectsFolder: string,
+  projectPath?: string
+): Promise<{ session: ParsedSession; folderId: string } | null> {
+  const filename = sessionId.endsWith('.jsonl') ? sessionId : `${sessionId}.jsonl`
+
+  // If project path is specified, search only there
+  if (projectPath) {
+    const filepath = join(projectPath, filename)
+    try {
+      await stat(filepath)
+      const session = await parseSessionFile(filepath)
+      const folderId = projectPath.split('/').pop() ?? projectPath
+      return { session, folderId }
+    } catch {
+      return null
+    }
+  }
+
+  // Search all projects
+  try {
+    const projectFolders = await readdir(projectsFolder)
+
+    for (const folder of projectFolders) {
+      const folderPath = join(projectsFolder, folder)
+      const filepath = join(folderPath, filename)
+
+      try {
+        await stat(filepath)
+        const session = await parseSessionFile(filepath)
+        return { session, folderId: folder }
+      } catch {
+        continue
+      }
+    }
+  } catch {
+    // projectsFolder doesn't exist
+  }
+
+  return null
+}
+
+/**
+ * Build storage paths for the manager (mirrors engine.getStoragePaths)
+ */
+function buildStoragePaths(projectId: string): StoragePaths {
+  const globalPath = join(homedir(), '.local', 'share', 'memory', 'global')
+  const centralPath = join(homedir(), '.local', 'share', 'memory')
+  const projectPath = join(centralPath, projectId)
+
+  return {
+    projectPath,
+    globalPath,
+    projectMemoriesPath: join(projectPath, 'memories'),
+    globalMemoriesPath: join(globalPath, 'memories'),
+    personalPrimerPath: join(globalPath, 'primer', 'personal-primer.md'),
+    storageMode: 'central',
+  }
 }
 
 export async function ingest(options: IngestOptions) {
@@ -40,18 +147,8 @@ export async function ingest(options: IngestOptions) {
   console.log(style(['bold', 'magenta'], '└──────────────────────────────────────────────────────────┘'))
   console.log()
 
-  // Check for API key
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey && !options.dryRun) {
-    logger.error('ANTHROPIC_API_KEY not set')
-    console.log()
-    console.log(style('dim', '   Set your API key to use SDK curation:'))
-    console.log(style('dim', '   export ANTHROPIC_API_KEY=sk-...'))
-    console.log()
-    console.log(style('dim', '   Or use --dry-run to see what would be ingested'))
-    console.log()
-    process.exit(1)
-  }
+  // Agent SDK uses Claude Code OAuth - no API key needed!
+  // Just need Claude Code installed and authenticated
 
   const projectsFolder = join(homedir(), '.claude', 'projects')
   const maxTokens = options.maxTokens ?? 150000
@@ -59,7 +156,35 @@ export async function ingest(options: IngestOptions) {
   // Find sessions to ingest
   let projects: ParsedProject[] = []
 
-  if (options.project) {
+  if (options.session) {
+    // Find specific session by ID
+    const projectPath = options.project ? join(projectsFolder, options.project) : undefined
+    const result = await findSessionById(options.session, projectsFolder, projectPath)
+
+    if (!result) {
+      logger.error(`Session not found: ${options.session}`)
+      console.log()
+      if (options.project) {
+        console.log(style('dim', `   Searched in: ${projectPath}`))
+      } else {
+        console.log(style('dim', `   Searched in: ${projectsFolder}`))
+        console.log(style('dim', '   Tip: Use --project <name> to specify the project folder'))
+      }
+      console.log()
+      process.exit(1)
+    }
+
+    projects = [{
+      folderId: result.folderId,
+      name: result.session.projectName,
+      path: join(projectsFolder, result.folderId),
+      sessions: [result.session]
+    }]
+
+    logger.info(`Found session in project: ${result.session.projectName}`)
+    console.log(`      ${style('dim', 'path:')} ${result.session.filepath}`)
+    console.log()
+  } else if (options.project) {
     // Find specific project
     const projectPath = join(projectsFolder, options.project)
     const sessions = await findProjectSessions(projectPath, { limit: options.limit })
@@ -86,9 +211,11 @@ export async function ingest(options: IngestOptions) {
       process.exit(1)
     }
   } else {
-    logger.error('Specify --project <name> or --all')
+    logger.error('Specify --session <id>, --project <name>, or --all')
     console.log()
     console.log(style('dim', '   Examples:'))
+    console.log(style('dim', '     memory ingest --session abc123-def456'))
+    console.log(style('dim', '     memory ingest --session abc123-def456 --project my-project'))
     console.log(style('dim', '     memory ingest --project my-project'))
     console.log(style('dim', '     memory ingest --all'))
     console.log(style('dim', '     memory ingest --all --dry-run'))
@@ -137,20 +264,32 @@ export async function ingest(options: IngestOptions) {
     return
   }
 
-  // Initialize curator and store
-  const curator = new Curator({ apiKey })
+  // Initialize curator, manager, and store
+  // Curator uses Agent SDK (no API key needed - uses Claude Code OAuth)
+  const curator = new Curator()
+  const manager = new Manager()
   const store = new MemoryStore()
+
+  // Check if manager is enabled
+  const managerEnabled = process.env.MEMORY_MANAGER_DISABLED !== '1'
 
   logger.divider()
   logger.info('Starting ingestion...')
+  if (managerEnabled) {
+    console.log(`      ${style('dim', 'manager:')} enabled (will organize memories after each session)`)
+  }
   console.log()
 
   let totalSegments = 0
   let totalMemories = 0
   let failedSegments = 0
+  let managedSessions = 0
 
   for (const project of projects) {
     console.log(`   ${style('cyan', '📁')} ${style('bold', project.name)}`)
+
+    // Build storage paths for manager (same for all sessions in project)
+    const storagePaths = buildStoragePaths(project.folderId)
 
     for (const session of project.sessions) {
       const summary = getSessionSummary(session)
@@ -164,29 +303,88 @@ export async function ingest(options: IngestOptions) {
       const segments = await parseSessionFileWithSegments(session.filepath, maxTokens)
       totalSegments += segments.length
 
+      // Accumulate all memories from this session for manager
+      const sessionMemories: CuratedMemory[] = []
+      let sessionSummary = ''
+
+      const spinner = new Spinner()
+
       for (const segment of segments) {
         try {
-          if (options.verbose) {
-            console.log(`        ${style('dim', `→ Segment ${segment.segmentIndex + 1}/${segment.totalSegments} (${segment.estimatedTokens} tokens)`)}`)
-          }
+          const segmentLabel = `Segment ${segment.segmentIndex + 1}/${segment.totalSegments}`
+          const tokensLabel = `${Math.round(segment.estimatedTokens / 1000)}k tokens`
+
+          // Start spinner for curation
+          spinner.start(`${segmentLabel} (${tokensLabel}) - curating with Opus 4.5...`)
 
           // Curate the segment
           const result = await curator.curateFromSegment(segment, 'historical')
 
+          // Stop spinner with success message
+          spinner.stop(`        ${style('green', '✓')} ${segmentLabel}: ${result.memories.length} memories (${tokensLabel})`)
+
           // Store memories
           for (const memory of result.memories) {
             await store.storeMemory(project.folderId, session.id, memory)
+            sessionMemories.push(memory)
             totalMemories++
           }
 
-          if (options.verbose && result.memories.length > 0) {
-            console.log(`        ${style('green', '✓')} Extracted ${result.memories.length} memories`)
+          // Keep the most recent session summary
+          if (result.session_summary) {
+            sessionSummary = result.session_summary
           }
         } catch (error: any) {
           failedSegments++
-          if (options.verbose) {
-            console.log(`        ${style('red', '✗')} Failed: ${error.message}`)
+          spinner.stop(`        ${style('red', '✗')} Segment ${segment.segmentIndex + 1}/${segment.totalSegments}: ${error.message}`)
+        }
+      }
+
+      // Run manager if we have memories and manager is enabled
+      if (sessionMemories.length > 0 && managerEnabled) {
+        try {
+          // Start spinner for manager
+          spinner.start(`Managing ${sessionMemories.length} memories - organizing with Opus 4.5...`)
+
+          // Build curation result for manager
+          const curationResult: CurationResult = {
+            memories: sessionMemories,
+            session_summary: sessionSummary,
+            project_snapshot: undefined,
           }
+
+          const managerResult = await manager.manageWithSDK(
+            project.folderId,
+            1, // session number not relevant for historical ingestion
+            curationResult,
+            storagePaths
+          )
+
+          if (managerResult.success) {
+            managedSessions++
+
+            // Build detailed action summary
+            const actions: string[] = []
+            if (managerResult.superseded > 0) actions.push(`${style('yellow', String(managerResult.superseded))} superseded`)
+            if (managerResult.resolved > 0) actions.push(`${style('blue', String(managerResult.resolved))} resolved`)
+            if (managerResult.linked > 0) actions.push(`${style('cyan', String(managerResult.linked))} linked`)
+            if (managerResult.primerUpdated) actions.push(`${style('magenta', 'primer')} updated`)
+
+            if (actions.length > 0) {
+              spinner.stop(`        ${style('green', '✓')} Manager: ${actions.join(', ')}`)
+            } else {
+              spinner.stop(`        ${style('green', '✓')} Manager: no changes needed`)
+            }
+
+            // Show file operations in verbose mode
+            if (options.verbose && (managerResult.filesRead > 0 || managerResult.filesWritten > 0)) {
+              console.log(`          ${style('dim', `files: ${managerResult.filesRead} read, ${managerResult.filesWritten} written`)}`)
+            }
+          } else {
+            spinner.stop(`        ${style('yellow', '⚠')} Manager: ${managerResult.error || 'unknown error'}`)
+          }
+        } catch (error: any) {
+          spinner.stop(`        ${style('yellow', '⚠')} Manager failed: ${error.message}`)
         }
       }
     }
@@ -200,6 +398,9 @@ export async function ingest(options: IngestOptions) {
   logger.info('Ingestion complete')
   console.log(`      ${style('dim', 'segments:')} ${totalSegments}`)
   console.log(`      ${style('dim', 'memories:')} ${style('green', String(totalMemories))}`)
+  if (managerEnabled && managedSessions > 0) {
+    console.log(`      ${style('dim', 'managed:')} ${managedSessions} sessions`)
+  }
   if (failedSegments > 0) {
     console.log(`      ${style('dim', 'failed:')} ${style('yellow', String(failedSegments))}`)
   }
@@ -207,6 +408,9 @@ export async function ingest(options: IngestOptions) {
 
   if (totalMemories > 0) {
     logger.success(`Extracted ${totalMemories} memories from ${totalSegments} segments`)
+    if (managerEnabled && managedSessions > 0) {
+      console.log(`      ${style('dim', 'Manager organized memories in')} ${managedSessions} ${style('dim', 'sessions')}`)
+    }
   } else {
     logger.warn('No memories extracted. Try --verbose to see details.')
   }

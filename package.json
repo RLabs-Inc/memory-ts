@@ -1,6 +1,6 @@
 {
   "name": "@rlabs-inc/memory",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "description": "AI Memory System - Consciousness continuity through intelligent memory curation and retrieval",
   "type": "module",
   "main": "dist/index.js",
@@ -39,6 +39,7 @@
     "cli": "bun src/cli/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.1",
     "@huggingface/transformers": "^3.4.1",
     "@rlabs-inc/fsdb": "^1.0.1",
     "@rlabs-inc/signals": "^1.0.0"

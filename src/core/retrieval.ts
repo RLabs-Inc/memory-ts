@@ -260,7 +260,7 @@ export class SmartVectorRetrieval {
     const min = Math.min(...samples)
     const max = Math.max(...samples)
     const avg = samples.reduce((a, b) => a + b, 0) / samples.length
-    console.log(`[DEBUG] Vector similarities: min=${(min*100).toFixed(1)}% max=${(max*100).toFixed(1)}% avg=${(avg*100).toFixed(1)}% (${samples.length} samples)`)
+    logger.debug(`Vector similarities: min=${(min*100).toFixed(1)}% max=${(max*100).toFixed(1)}% avg=${(avg*100).toFixed(1)}% (${samples.length} samples)`, 'retrieval')
     this._vectorDebugSamples = []  // Reset for next retrieval
   }
 
@@ -516,11 +516,13 @@ export class SmartVectorRetrieval {
     })
 
     // Debug: show top 15 candidates with calculated scores
-    console.log(`[DEBUG] Top 15 candidates (sorted):`)
-    for (let i = 0; i < Math.min(15, projectsSorted.length); i++) {
-      const m = projectsSorted[i]
-      const action = m.memory.action_required ? '⚡' : ''
-      console.log(`  ${i+1}. [${m.signals.count}sig] score=${m.importanceScore.toFixed(2)} ${action} ${m.memory.content.slice(0, 45)}...`)
+    if (logger.isVerbose()) {
+      logger.debug(`Top 15 candidates (sorted):`, 'retrieval')
+      for (let i = 0; i < Math.min(15, projectsSorted.length); i++) {
+        const m = projectsSorted[i]
+        const action = m.memory.action_required ? '⚡' : ''
+        logger.debug(`  ${i+1}. [${m.signals.count}sig] score=${m.importanceScore.toFixed(2)} ${action} ${m.memory.content.slice(0, 45)}...`, 'retrieval')
+      }
     }
 
     for (const item of projectsSorted) {

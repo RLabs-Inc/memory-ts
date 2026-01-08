@@ -383,7 +383,135 @@ Please process these memories according to your management procedure. Use the ex
   }
 
   /**
-   * Manage using CLI subprocess
+   * Manage using Claude Agent SDK (no API key needed - uses Claude Code OAuth)
+   * Use this for ingest command - cleaner than CLI subprocess
+   */
+  async manageWithSDK(
+    projectId: string,
+    sessionNumber: number,
+    result: CurationResult,
+    storagePaths?: StoragePaths
+  ): Promise<ManagementResult> {
+    // Skip if disabled via config or env var
+    if (!this._config.enabled || process.env.MEMORY_MANAGER_DISABLED === '1') {
+      return {
+        success: true,
+        superseded: 0,
+        resolved: 0,
+        linked: 0,
+        filesRead: 0,
+        filesWritten: 0,
+        primerUpdated: false,
+        actions: [],
+        summary: 'Management agent disabled',
+        fullReport: 'Management agent disabled via configuration',
+      }
+    }
+
+    // Skip if no memories
+    if (result.memories.length === 0) {
+      return {
+        success: true,
+        superseded: 0,
+        resolved: 0,
+        linked: 0,
+        filesRead: 0,
+        filesWritten: 0,
+        primerUpdated: false,
+        actions: [],
+        summary: 'No memories to process',
+        fullReport: 'No memories to process - skipped',
+      }
+    }
+
+    // Load skill file
+    const systemPrompt = await this.buildManagementPrompt()
+    if (!systemPrompt) {
+      return {
+        success: false,
+        superseded: 0,
+        resolved: 0,
+        linked: 0,
+        filesRead: 0,
+        filesWritten: 0,
+        primerUpdated: false,
+        actions: [],
+        summary: '',
+        fullReport: 'Error: Management skill file not found',
+        error: 'Management skill not found',
+      }
+    }
+
+    const userMessage = this.buildUserMessage(projectId, sessionNumber, result, storagePaths)
+
+    try {
+      // Dynamic import to make Agent SDK optional
+      const { query } = await import('@anthropic-ai/claude-agent-sdk')
+
+      // Build allowed directories for file access
+      const globalPath = storagePaths?.globalPath ?? join(homedir(), '.local', 'share', 'memory', 'global')
+      const projectPath = storagePaths?.projectPath ?? join(homedir(), '.local', 'share', 'memory')
+
+      // Use Agent SDK with file tools
+      const q = query({
+        prompt: userMessage,
+        options: {
+          systemPrompt,
+          permissionMode: 'bypassPermissions',
+          model: 'claude-opus-4-5-20251101',
+          // Only allow file tools - no Bash, no web
+          allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep'],
+          // Allow access to memory directories
+          additionalDirectories: [globalPath, projectPath],
+          // Limit turns if configured
+          maxTurns: this._config.maxTurns,
+        },
+      })
+
+      // Iterate through the async generator to get the result
+      let resultText = ''
+      for await (const msg of q) {
+        if (msg.type === 'result' && 'result' in msg) {
+          resultText = msg.result
+          break
+        }
+      }
+
+      if (!resultText) {
+        return {
+          success: true,
+          superseded: 0,
+          resolved: 0,
+          linked: 0,
+          filesRead: 0,
+          filesWritten: 0,
+          primerUpdated: false,
+          actions: [],
+          summary: 'No result from management agent',
+          fullReport: 'Management agent completed but returned no result',
+        }
+      }
+
+      return this._parseSDKManagementResult(resultText)
+    } catch (error: any) {
+      return {
+        success: false,
+        superseded: 0,
+        resolved: 0,
+        linked: 0,
+        filesRead: 0,
+        filesWritten: 0,
+        primerUpdated: false,
+        actions: [],
+        summary: '',
+        fullReport: `Error: Agent SDK failed: ${error.message}`,
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * Manage using CLI subprocess (for hooks - keeps working while we migrate)
    * Similar to Curator.curateWithCLI
    */
   async manageWithCLI(
@@ -495,6 +623,52 @@ Please process these memories according to your management procedure. Use the ex
     }
 
     return this.parseManagementResponse(stdout)
+  }
+
+  /**
+   * Parse management result from Agent SDK response
+   * Similar to parseManagementResponse but for SDK output format
+   */
+  private _parseSDKManagementResult(resultText: string): ManagementResult {
+    // Extract actions section
+    const actionsMatch = resultText.match(/=== MANAGEMENT ACTIONS ===([\s\S]*?)(?:=== SUMMARY ===|$)/)
+    const actions: string[] = []
+    if (actionsMatch) {
+      const actionsText = actionsMatch[1]
+      const actionLines = actionsText.split('\n')
+        .map((line: string) => line.trim())
+        .filter((line: string) => /^(READ|WRITE|RECEIVED|CREATED|UPDATED|SUPERSEDED|RESOLVED|LINKED|PRIMER|SKIPPED|NO_ACTION)/.test(line))
+      actions.push(...actionLines)
+    }
+
+    // Extract the full report
+    const reportMatch = resultText.match(/(=== MANAGEMENT ACTIONS ===[\s\S]*)/)
+    const fullReport = reportMatch ? reportMatch[1].trim() : resultText
+
+    // Extract stats from result text
+    const supersededMatch = resultText.match(/memories_superseded[:\s]+(\d+)/i) || resultText.match(/superseded[:\s]+(\d+)/i)
+    const resolvedMatch = resultText.match(/memories_resolved[:\s]+(\d+)/i) || resultText.match(/resolved[:\s]+(\d+)/i)
+    const linkedMatch = resultText.match(/memories_linked[:\s]+(\d+)/i) || resultText.match(/linked[:\s]+(\d+)/i)
+    const filesReadMatch = resultText.match(/files_read[:\s]+(\d+)/i)
+    const filesWrittenMatch = resultText.match(/files_written[:\s]+(\d+)/i)
+    const primerUpdated = /primer_updated[:\s]+true/i.test(resultText) || /PRIMER\s+OK/i.test(resultText)
+
+    // Count file operations from actions if not in summary
+    const readActions = actions.filter((a: string) => a.startsWith('READ OK')).length
+    const writeActions = actions.filter((a: string) => a.startsWith('WRITE OK')).length
+
+    return {
+      success: true,
+      superseded: supersededMatch ? parseInt(supersededMatch[1]) : 0,
+      resolved: resolvedMatch ? parseInt(resolvedMatch[1]) : 0,
+      linked: linkedMatch ? parseInt(linkedMatch[1]) : 0,
+      filesRead: filesReadMatch ? parseInt(filesReadMatch[1]) : readActions,
+      filesWritten: filesWrittenMatch ? parseInt(filesWrittenMatch[1]) : writeActions,
+      primerUpdated,
+      actions,
+      summary: resultText.slice(0, 500),
+      fullReport,
+    }
   }
 }
 

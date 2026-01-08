@@ -67,6 +67,7 @@ export type CurationTrigger =
   | 'pre_compact'       // Before context compression
   | 'context_full'      // Context window nearly full
   | 'manual'            // Manual trigger
+  | 'historical'        // Historical session ingestion
 
 /**
  * A memory curated by Claude with semantic understanding

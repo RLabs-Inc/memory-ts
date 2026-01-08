@@ -23,7 +23,7 @@ ${c.bold('Commands:')}
   ${c.command('serve')}      Start the memory server ${c.muted('(default)')}
   ${c.command('stats')}      Show memory statistics
   ${c.command('install')}    Set up hooks ${c.muted('(--claude or --gemini)')}
-  ${c.command('ingest')}     Ingest historical sessions into memory ${c.muted('(--project or --all)')}
+  ${c.command('ingest')}     Ingest historical sessions into memory ${c.muted('(--session, --project, or --all)')}
   ${c.command('migrate')}    Upgrade memories to latest schema version
   ${c.command('doctor')}     Check system health
   ${c.command('help')}       Show this help message
@@ -32,8 +32,9 @@ ${c.bold('Options:')}
   ${c.cyan('-p, --port')} <port>    Server port ${c.muted('(default: 8765)')}
   ${c.cyan('-v, --verbose')}        Verbose output
   ${c.cyan('-q, --quiet')}          Minimal output
-  ${c.cyan('--dry-run')}            Preview changes without applying ${c.muted('(migrate)')}
+  ${c.cyan('--dry-run')}            Preview changes without applying ${c.muted('(migrate, ingest)')}
   ${c.cyan('--embeddings')}         Regenerate embeddings for memories ${c.muted('(migrate)')}
+  ${c.cyan('--session')} <id>       Ingest a specific session by ID ${c.muted('(ingest)')}
   ${c.cyan('--claude')}             Install hooks for Claude Code
   ${c.cyan('--gemini')}             Install hooks for Gemini CLI
   ${c.cyan('--version')}            Show version
@@ -44,7 +45,8 @@ ${fmt.cmd('memory serve --port 9000')}  ${c.muted('# Start on custom port')}
 ${fmt.cmd('memory stats')}              ${c.muted('# Show memory statistics')}
 ${fmt.cmd('memory install')}            ${c.muted('# Install Claude Code hooks (default)')}
 ${fmt.cmd('memory install --gemini')}   ${c.muted('# Install Gemini CLI hooks')}
-${fmt.cmd('memory ingest --project foo')}  ${c.muted('# Ingest sessions from a project')}
+${fmt.cmd('memory ingest --session abc123')}  ${c.muted('# Ingest a specific session')}
+${fmt.cmd('memory ingest --project foo')}  ${c.muted('# Ingest all sessions from a project')}
 ${fmt.cmd('memory ingest --all --dry-run')}  ${c.muted('# Preview all sessions to ingest')}
 ${fmt.cmd('memory migrate')}            ${c.muted('# Upgrade memories to v2 schema')}
 ${fmt.cmd('memory migrate --dry-run')}  ${c.muted('# Preview migration without changes')}
@@ -78,6 +80,7 @@ async function main() {
       'dry-run': { type: 'boolean', default: false },
       embeddings: { type: 'boolean', default: false },  // Regenerate embeddings in migrate
       path: { type: 'string' },  // Custom path for migrate
+      session: { type: 'string' },  // Session ID to ingest
       project: { type: 'string' },  // Project to ingest
       all: { type: 'boolean', default: false },  // Ingest all projects
       limit: { type: 'string' },  // Limit sessions per project
@@ -146,6 +149,7 @@ async function main() {
     case 'ingest': {
       const { ingest } = await import('./commands/ingest.ts')
       await ingest({
+        session: values.session,
         project: values.project,
         all: values.all,
         dryRun: values['dry-run'],

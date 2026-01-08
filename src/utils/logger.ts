@@ -65,6 +65,16 @@ export const logger = {
   },
 
   /**
+   * Debug message (only shown in verbose mode)
+   */
+  debug(message: string, prefix?: string) {
+    if (_verbose) {
+      const pfx = prefix ? style('dim', `[${prefix}] `) : ''
+      console.log(`${style('dim', `🔍 ${pfx}${message}`)}`)
+    }
+  },
+
+  /**
    * Info message
    */
   info(message: string) {

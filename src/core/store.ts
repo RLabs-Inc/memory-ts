@@ -6,6 +6,7 @@
 import { createDatabase, type Database, type PersistentCollection } from '@rlabs-inc/fsdb'
 import { homedir } from 'os'
 import { join } from 'path'
+import { logger } from '../utils/logger.ts'
 import {
   type CuratedMemory,
   type StoredMemory,
@@ -126,7 +127,7 @@ export class MemoryStore {
 
     // Use the configured global path (always central)
     const globalPath = this._config.globalPath
-    console.log(`🌐 [DEBUG] Initializing global database at ${globalPath}`)
+    logger.debug(`Initializing global database at ${globalPath}`, 'store')
 
     const db = createDatabase({
       name: 'global',
@@ -414,13 +415,13 @@ export class MemoryStore {
    */
   async getProject(projectId: string): Promise<ProjectDB> {
     if (this._projects.has(projectId)) {
-      console.log(`🔄 [DEBUG] Returning cached databases for ${projectId}`)
+      logger.debug(`Returning cached databases for ${projectId}`, 'store')
       return this._projects.get(projectId)!
     }
 
-    console.log(`🆕 [DEBUG] Creating NEW databases for ${projectId}`)
+    logger.debug(`Creating NEW databases for ${projectId}`, 'store')
     const projectPath = join(this._config.basePath, projectId)
-    console.log(`   Path: ${projectPath}`)
+    logger.debug(`Path: ${projectPath}`, 'store')
 
     // Create the database for this project
     const db = createDatabase({
@@ -743,9 +744,7 @@ export class MemoryStore {
   ): Promise<string> {
     const { summaries } = await this.getProject(projectId)
 
-    console.log(`📝 [DEBUG] Storing summary for ${projectId}:`)
-    console.log(`   Summary length: ${summary.length} chars`)
-    console.log(`   Summaries count before: ${summaries.all().length}`)
+    logger.debug(`Storing summary for ${projectId}: ${summary.length} chars`, 'store')
 
     const id = summaries.insert({
       session_id: sessionId,
@@ -754,8 +753,7 @@ export class MemoryStore {
       interaction_tone: interactionTone,
     })
 
-    console.log(`   Summaries count after: ${summaries.all().length}`)
-    console.log(`   Inserted ID: ${id}`)
+    logger.debug(`Summary stored with ID: ${id}`, 'store')
 
     return id
   }
@@ -766,14 +764,14 @@ export class MemoryStore {
   async getLatestSummary(projectId: string): Promise<SessionSummary | null> {
     const { summaries } = await this.getProject(projectId)
 
-    console.log(`📖 [DEBUG] Getting latest summary for ${projectId}:`)
+    logger.debug(`Getting latest summary for ${projectId}`, 'store')
     const all = summaries.all()
-    console.log(`   Summaries found: ${all.length}`)
 
     if (!all.length) {
-      console.log(`   No summaries found!`)
+      logger.debug(`No summaries found for ${projectId}`, 'store')
       return null
     }
+    logger.debug(`Found ${all.length} summaries for ${projectId}`, 'store')
 
     // Sort by created timestamp (most recent first)
     const sorted = [...all].sort((a, b) => b.created - a.created)
