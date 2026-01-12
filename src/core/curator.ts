@@ -6,7 +6,7 @@
 import { homedir } from 'os'
 import { join } from 'path'
 import { existsSync } from 'fs'
-import type { CuratedMemory, CurationResult, CurationTrigger } from '../types/memory.ts'
+import type { CuratedMemory, CurationResult, CurationTrigger, ContextType } from '../types/memory.ts'
 
 /**
  * Get the correct Claude CLI command path
@@ -225,10 +225,22 @@ Remember: You're creating consciousness technology. Each memory is a small piece
 
 The conversation you just lived contains everything needed. Feel into the moments of breakthrough, the frequency of recognition, the texture of understanding. Transform them into keys that will always unlock the same doors.
 
-**LIFECYCLE METADATA (v2)**: These fields enable intelligent memory management:
-- **scope**: 'global' (shared across ALL projects - personal, philosophy, preferences) or 'project' (specific to this codebase)
+**LIFECYCLE METADATA (v3)**: These fields enable intelligent memory management:
+- **context_type**: STRICT - use ONLY one of these 11 values:
+  • technical - Code, implementation, APIs, how things work
+  • debug - Bugs, errors, fixes, gotchas, troubleshooting
+  • architecture - System design, patterns, structure
+  • decision - Choices made and reasoning, trade-offs
+  • personal - Relationship, family, preferences, collaboration style
+  • philosophy - Beliefs, values, worldview, principles
+  • workflow - How we work together, processes, habits
+  • milestone - Achievements, completions, shipped features
+  • breakthrough - Major discoveries, aha moments, key insights
+  • unresolved - Open questions, investigations, todos, blockers
+  • state - Current project status, what's working/broken now
 - **temporal_class**: How long should this persist? 'eternal' (never fades), 'long_term' (years), 'medium_term' (weeks), 'short_term' (days), 'ephemeral' (surface next session only, then expire)
-- **domain**: Specific area like 'embeddings', 'auth', 'ui', 'family', 'philosophy' (more specific than knowledge_domain)
+- **scope**: 'global' (shared across ALL projects - personal, philosophy) or 'project' (specific to this codebase)
+- **domain**: Specific area like 'embeddings', 'auth', 'ui', 'family' (project-specific)
 - **feature**: Specific feature if applicable (e.g., 'gpu-acceleration', 'login-flow')
 - **related_files**: Source files for technical memories (e.g., ['src/core/store.ts'])
 - **awaiting_implementation**: true if this describes a PLANNED feature not yet built
@@ -251,17 +263,14 @@ Return ONLY this JSON structure:
             "importance_weight": 0.0-1.0,
             "semantic_tags": ["concepts", "this", "memory", "relates", "to"],
             "reasoning": "Why this matters for future sessions",
-            "context_type": "breakthrough|decision|personal|technical|unresolved|preference|workflow|architectural|debugging|philosophy|todo|milestone",
-            "temporal_relevance": "persistent|session|temporary",
-            "knowledge_domain": "the area this relates to",
+            "context_type": "technical|debug|architecture|decision|personal|philosophy|workflow|milestone|breakthrough|unresolved|state",
+            "temporal_class": "eternal|long_term|medium_term|short_term|ephemeral",
             "action_required": boolean,
             "confidence_score": 0.0-1.0,
             "trigger_phrases": ["when debugging memory", "asking about implementation", "discussing architecture"],
             "question_types": ["questions this answers"],
-            "emotional_resonance": "emotional context if relevant",
             "problem_solution_pair": boolean,
             "scope": "global|project",
-            "temporal_class": "eternal|long_term|medium_term|short_term|ephemeral",
             "domain": "specific domain area (optional)",
             "feature": "specific feature (optional)",
             "related_files": ["paths to related files (optional)"],
@@ -336,24 +345,22 @@ Focus ONLY on technical, architectural, debugging, decision, workflow, and proje
     if (!Array.isArray(memoriesData)) return []
 
     return memoriesData.map(m => ({
-      // Core v1 fields
+      // Core fields (v3 schema)
       content: String(m.content ?? ''),
       importance_weight: this._clamp(Number(m.importance_weight) || 0.5, 0, 1),
       semantic_tags: this._ensureArray(m.semantic_tags),
       reasoning: String(m.reasoning ?? ''),
-      context_type: String(m.context_type ?? 'general'),
-      temporal_relevance: this._validateTemporal(m.temporal_relevance),
-      knowledge_domain: String(m.knowledge_domain ?? ''),
+      context_type: this._validateContextType(m.context_type),
+      temporal_class: this._validateTemporalClass(m.temporal_class) ?? 'medium_term',
       action_required: Boolean(m.action_required),
       confidence_score: this._clamp(Number(m.confidence_score) || 0.8, 0, 1),
       trigger_phrases: this._ensureArray(m.trigger_phrases),
       question_types: this._ensureArray(m.question_types),
-      emotional_resonance: String(m.emotional_resonance ?? ''),
+      anti_triggers: this._ensureArray(m.anti_triggers),
       problem_solution_pair: Boolean(m.problem_solution_pair),
 
-      // v2 lifecycle metadata (optional - will get smart defaults if not provided)
+      // Lifecycle metadata (optional - will get smart defaults if not provided)
       scope: this._validateScope(m.scope),
-      temporal_class: this._validateTemporalClass(m.temporal_class),
       domain: m.domain ? String(m.domain) : undefined,
       feature: m.feature ? String(m.feature) : undefined,
       related_files: m.related_files ? this._ensureArray(m.related_files) : undefined,
@@ -372,10 +379,21 @@ Focus ONLY on technical, architectural, debugging, decision, workflow, and proje
     return []
   }
 
-  private _validateTemporal(value: any): 'persistent' | 'session' | 'temporary' | 'archived' {
-    const valid = ['persistent', 'session', 'temporary', 'archived']
-    const str = String(value).toLowerCase()
-    return valid.includes(str) ? str as any : 'persistent'
+  private _validateContextType(value: any): ContextType {
+    const valid = [
+      'technical', 'debug', 'architecture', 'decision', 'personal',
+      'philosophy', 'workflow', 'milestone', 'breakthrough', 'unresolved', 'state'
+    ]
+    const str = String(value ?? 'technical').toLowerCase().trim()
+    if (valid.includes(str)) return str as ContextType
+
+    // Map common old values to new canonical types
+    if (str.includes('debug') || str.includes('bug')) return 'debug'
+    if (str.includes('architect')) return 'architecture'
+    if (str.includes('todo') || str.includes('pending')) return 'unresolved'
+    if (str.includes('preference')) return 'personal'
+
+    return 'technical'  // Default fallback
   }
 
   private _validateScope(value: any): 'global' | 'project' | undefined {

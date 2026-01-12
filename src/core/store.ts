@@ -177,9 +177,7 @@ export class MemoryStore {
       importance_weight: record.importance_weight,
       confidence_score: record.confidence_score,
       context_type: record.context_type as StoredMemory['context_type'],
-      temporal_relevance: record.temporal_relevance as StoredMemory['temporal_relevance'],
-      knowledge_domain: record.knowledge_domain as StoredMemory['knowledge_domain'],
-      emotional_resonance: record.emotional_resonance as StoredMemory['emotional_resonance'],
+      temporal_class: record.temporal_class as StoredMemory['temporal_class'],
       action_required: record.action_required,
       problem_solution_pair: record.problem_solution_pair,
       semantic_tags: record.semantic_tags,
@@ -211,30 +209,28 @@ export class MemoryStore {
     const typeDefaults = V2_DEFAULTS.typeDefaults[contextType] ?? V2_DEFAULTS.typeDefaults.personal
 
     const id = memories.insert({
-      // Core v1 fields
+      // Core fields
       content: memory.content,
       reasoning: memory.reasoning,
       importance_weight: memory.importance_weight,
       confidence_score: memory.confidence_score,
       context_type: memory.context_type,
-      temporal_relevance: memory.temporal_relevance,
-      knowledge_domain: memory.knowledge_domain,
-      emotional_resonance: memory.emotional_resonance,
+      temporal_class: memory.temporal_class ?? typeDefaults?.temporal_class ?? 'eternal',
       action_required: memory.action_required,
       problem_solution_pair: memory.problem_solution_pair,
       semantic_tags: memory.semantic_tags,
       trigger_phrases: memory.trigger_phrases,
       question_types: memory.question_types,
+      anti_triggers: memory.anti_triggers ?? [],
       session_id: sessionId,
       project_id: 'global',
       embedding: embedding
         ? (embedding instanceof Float32Array ? embedding : new Float32Array(embedding))
         : null,
 
-      // v2 lifecycle fields - global memories are always scope: 'global'
+      // Lifecycle fields - global memories are always scope: 'global'
       status: V2_DEFAULTS.fallback.status,
       scope: 'global',  // Always global for global memories
-      temporal_class: memory.temporal_class ?? typeDefaults?.temporal_class ?? 'eternal',
       fade_rate: typeDefaults?.fade_rate ?? 0,  // Global memories typically don't fade
       session_created: sessionNumber ?? 0,
       session_updated: sessionNumber ?? 0,
@@ -244,18 +240,15 @@ export class MemoryStore {
       related_files: memory.related_files ?? [],
       awaiting_implementation: memory.awaiting_implementation ?? false,
       awaiting_decision: memory.awaiting_decision ?? false,
-      retrieval_weight: memory.importance_weight,
       exclude_from_retrieval: false,
       schema_version: MEMORY_SCHEMA_VERSION,
 
-      // Initialize empty relationship fields
+      // Relationship fields
       supersedes: null,
       superseded_by: null,
       related_to: [],
       resolves: [],
       resolved_by: null,
-      parent_id: null,
-      child_ids: [],
       blocked_by: null,
       blocks: [],
     })
@@ -491,30 +484,28 @@ export class MemoryStore {
     const typeDefaults = V2_DEFAULTS.typeDefaults[contextType] ?? V2_DEFAULTS.typeDefaults.technical
 
     const id = memories.insert({
-      // Core v1 fields
+      // Core fields
       content: memory.content,
       reasoning: memory.reasoning,
       importance_weight: memory.importance_weight,
       confidence_score: memory.confidence_score,
       context_type: memory.context_type,
-      temporal_relevance: memory.temporal_relevance,
-      knowledge_domain: memory.knowledge_domain,
-      emotional_resonance: memory.emotional_resonance,
+      temporal_class: memory.temporal_class ?? typeDefaults?.temporal_class ?? V2_DEFAULTS.fallback.temporal_class,
       action_required: memory.action_required,
       problem_solution_pair: memory.problem_solution_pair,
       semantic_tags: memory.semantic_tags,
       trigger_phrases: memory.trigger_phrases,
       question_types: memory.question_types,
+      anti_triggers: memory.anti_triggers ?? [],
       session_id: sessionId,
       project_id: projectId,
       embedding: embedding
         ? (embedding instanceof Float32Array ? embedding : new Float32Array(embedding))
         : null,
 
-      // v2 lifecycle fields - use curator-provided values or smart defaults
+      // Lifecycle fields - use curator-provided values or smart defaults
       status: V2_DEFAULTS.fallback.status,
       scope: memory.scope ?? typeDefaults?.scope ?? V2_DEFAULTS.fallback.scope,
-      temporal_class: memory.temporal_class ?? typeDefaults?.temporal_class ?? V2_DEFAULTS.fallback.temporal_class,
       fade_rate: typeDefaults?.fade_rate ?? V2_DEFAULTS.fallback.fade_rate,
       session_created: sessionNumber ?? 0,
       session_updated: sessionNumber ?? 0,
@@ -524,18 +515,15 @@ export class MemoryStore {
       related_files: memory.related_files ?? [],
       awaiting_implementation: memory.awaiting_implementation ?? false,
       awaiting_decision: memory.awaiting_decision ?? false,
-      retrieval_weight: memory.importance_weight,  // Start with importance as retrieval weight
       exclude_from_retrieval: false,
       schema_version: MEMORY_SCHEMA_VERSION,
 
-      // Initialize empty relationship fields
+      // Relationship fields
       supersedes: null,
       superseded_by: null,
       related_to: [],
       resolves: [],
       resolved_by: null,
-      parent_id: null,
-      child_ids: [],
       blocked_by: null,
       blocks: [],
     })
@@ -556,9 +544,7 @@ export class MemoryStore {
       importance_weight: record.importance_weight,
       confidence_score: record.confidence_score,
       context_type: record.context_type as StoredMemory['context_type'],
-      temporal_relevance: record.temporal_relevance as StoredMemory['temporal_relevance'],
-      knowledge_domain: record.knowledge_domain as StoredMemory['knowledge_domain'],
-      emotional_resonance: record.emotional_resonance as StoredMemory['emotional_resonance'],
+      temporal_class: record.temporal_class as StoredMemory['temporal_class'],
       action_required: record.action_required,
       problem_solution_pair: record.problem_solution_pair,
       semantic_tags: record.semantic_tags,
@@ -596,9 +582,7 @@ export class MemoryStore {
           importance_weight: record.importance_weight,
           confidence_score: record.confidence_score,
           context_type: record.context_type as StoredMemory['context_type'],
-          temporal_relevance: record.temporal_relevance as StoredMemory['temporal_relevance'],
-          knowledge_domain: record.knowledge_domain as StoredMemory['knowledge_domain'],
-          emotional_resonance: record.emotional_resonance as StoredMemory['emotional_resonance'],
+          temporal_class: record.temporal_class as StoredMemory['temporal_class'],
           action_required: record.action_required,
           problem_solution_pair: record.problem_solution_pair,
           semantic_tags: record.semantic_tags,
@@ -620,9 +604,7 @@ export class MemoryStore {
       importance_weight: result.record.importance_weight,
       confidence_score: result.record.confidence_score,
       context_type: result.record.context_type as StoredMemory['context_type'],
-      temporal_relevance: result.record.temporal_relevance as StoredMemory['temporal_relevance'],
-      knowledge_domain: result.record.knowledge_domain as StoredMemory['knowledge_domain'],
-      emotional_resonance: result.record.emotional_resonance as StoredMemory['emotional_resonance'],
+      temporal_class: result.record.temporal_class as StoredMemory['temporal_class'],
       action_required: result.record.action_required,
       problem_solution_pair: result.record.problem_solution_pair,
       semantic_tags: result.record.semantic_tags,

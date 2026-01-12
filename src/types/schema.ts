@@ -9,7 +9,7 @@ import type { SchemaDefinition } from '@rlabs-inc/fsdb'
  * Schema version for migration tracking
  * Increment this when adding new fields that require migration
  */
-export const MEMORY_SCHEMA_VERSION = 2
+export const MEMORY_SCHEMA_VERSION = 3
 
 /**
  * Memory storage schema
@@ -18,6 +18,15 @@ export const MEMORY_SCHEMA_VERSION = 2
  * VERSION HISTORY:
  * v1: Original schema (content, reasoning, importance_weight, etc.)
  * v2: Added lifecycle management fields (status, scope, domain, relationships, etc.)
+ * v3: Consolidated metadata - removed fragmented/unused fields:
+ *     - knowledge_domain (overlaps with project_id + domain)
+ *     - emotional_resonance (580 variants, never used)
+ *     - component (always empty)
+ *     - expires_after_sessions (never used)
+ *     - parent_id/child_ids (no logic implemented)
+ *     - retrieval_weight (retrieval uses importance_weight)
+ *     - temporal_relevance (replaced by temporal_class)
+ *     Also: context_type now strict enum (11 canonical values)
  */
 export const memorySchema = {
   // ========== CORE CONTENT (v1) ==========
@@ -28,11 +37,8 @@ export const memorySchema = {
   importance_weight: 'number',          // 0.0 to 1.0
   confidence_score: 'number',           // 0.0 to 1.0
 
-  // ========== CLASSIFICATION (v1) ==========
-  context_type: 'string',               // breakthrough, decision, technical, etc.
-  temporal_relevance: 'string',         // persistent, session, temporary, archived
-  knowledge_domain: 'string',           // architecture, debugging, philosophy
-  emotional_resonance: 'string',        // joy, frustration, discovery, gratitude
+  // ========== CLASSIFICATION (v3) ==========
+  context_type: 'string',               // v3: strict enum (technical, debug, architecture, decision, personal, philosophy, workflow, milestone, breakthrough, unresolved, state)
 
   // ========== FLAGS (v1) ==========
   action_required: 'boolean',
@@ -63,12 +69,10 @@ export const memorySchema = {
   // ========== TEMPORAL CLASS & DECAY (v2) ==========
   temporal_class: 'string',             // eternal | long_term | medium_term | short_term | ephemeral
   fade_rate: 'number',                  // Decay rate per session
-  expires_after_sessions: 'number',     // For ephemeral only
 
   // ========== CATEGORIZATION (v2) ==========
   domain: 'string',                     // embeddings, gpu, auth, family, etc.
   feature: 'string',                    // Specific feature within domain
-  component: 'string',                  // Code component if applicable
 
   // ========== RELATIONSHIPS (v2) ==========
   supersedes: 'string',                 // ID of memory this replaces
@@ -76,8 +80,6 @@ export const memorySchema = {
   related_to: 'string[]',               // IDs of related memories
   resolves: 'string[]',                 // IDs of unresolved/debug/todo this solved
   resolved_by: 'string',                // ID of solved memory that resolved this
-  parent_id: 'string',                  // For chains/sequences
-  child_ids: 'string[]',                // Children in chain
 
   // ========== LIFECYCLE TRIGGERS (v2) ==========
   awaiting_implementation: 'boolean',   // Set true for planned features
@@ -87,7 +89,6 @@ export const memorySchema = {
   related_files: 'string[]',            // Source files for technical memories
 
   // ========== RETRIEVAL CONTROL (v2) ==========
-  retrieval_weight: 'number',           // Current weight (affected by decay)
   exclude_from_retrieval: 'boolean',    // Force exclusion
 
   // ========== SCHEMA VERSION (v2) ==========

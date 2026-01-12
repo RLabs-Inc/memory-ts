@@ -153,7 +153,6 @@ export const logger = {
     importance_weight: number
     context_type: string
     semantic_tags?: string[]
-    emotional_resonance?: string
     action_required?: boolean
   }>) {
     console.log()
@@ -575,6 +574,7 @@ export const logger = {
       domain: number
       feature: number
       content: number
+      files: number
       vector: number
       total: number
     }
@@ -601,6 +601,7 @@ export const logger = {
         { name: 'domain', count: signalBreakdown.domain },
         { name: 'feature', count: signalBreakdown.feature },
         { name: 'content', count: signalBreakdown.content },
+        { name: 'files', count: signalBreakdown.files },
         { name: 'vector', count: signalBreakdown.vector },
       ]
       for (const sig of signals) {
@@ -621,7 +622,7 @@ export const logger = {
     if (Object.keys(buckets).length > 0) {
       console.log(`      ${style('bold', 'Distribution:')}`)
       const maxBucketCount = Math.max(...Object.values(buckets), 1)
-      const bucketOrder = ['2 signals', '3 signals', '4 signals', '5 signals', '6 signals']
+      const bucketOrder = ['2 signals', '3 signals', '4 signals', '5 signals', '6 signals', '7 signals']
 
       for (const bucket of bucketOrder) {
         const count = buckets[bucket] ?? 0

@@ -27,6 +27,7 @@ interface ActivationSignals {
   domain: boolean       // Domain word found in message
   feature: boolean      // Feature word found in message
   content: boolean      // Key content words found in message
+  files: boolean        // Related file path matched
   count: number         // Total signals activated
   triggerStrength: number  // How strong the trigger match was (0-1)
   tagCount: number      // How many tags matched
@@ -100,7 +101,53 @@ export class SmartVectorRetrieval {
   }
 
   /**
+   * Extract file paths from message
+   * Matches patterns like /path/to/file.ts, src/core/engine.ts, ./relative/path
+   */
+  private _extractFilePaths(text: string): Set<string> {
+    const paths = new Set<string>()
+    // Match file paths (with / or \ separators, optional extension)
+    const pathPattern = /(?:^|[\s'"(])([.\/\\]?(?:[\w.-]+[\/\\])+[\w.-]+(?:\.\w+)?)/g
+    let match
+    while ((match = pathPattern.exec(text)) !== null) {
+      const path = match[1].toLowerCase()
+      paths.add(path)
+      // Also add just the filename for partial matching
+      const filename = path.split(/[\/\\]/).pop()
+      if (filename) paths.add(filename)
+    }
+    return paths
+  }
+
+  /**
+   * Check if related_files activate for this message
+   */
+  private _checkFilesActivation(
+    messagePaths: Set<string>,
+    relatedFiles: string[] | undefined
+  ): boolean {
+    if (!relatedFiles?.length || !messagePaths.size) return false
+
+    for (const file of relatedFiles) {
+      const fileLower = file.toLowerCase()
+      // Check if any message path matches this file
+      for (const msgPath of messagePaths) {
+        if (fileLower.includes(msgPath) || msgPath.includes(fileLower)) {
+          return true
+        }
+      }
+      // Also check just the filename
+      const filename = fileLower.split(/[\/\\]/).pop()
+      if (filename && messagePaths.has(filename)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
    * Pre-filter: Binary exclusions based on v2 lifecycle fields
+   * NOTE: superseded_by memories are NOT filtered here - they get redirected in Phase 1
    */
   private _preFilter(
     memories: StoredMemory[],
@@ -110,7 +157,7 @@ export class SmartVectorRetrieval {
     return memories.filter(memory => {
       if (memory.status && memory.status !== 'active') return false
       if (memory.exclude_from_retrieval === true) return false
-      if (memory.superseded_by) return false
+      // NOTE: Don't filter superseded_by here - we handle redirects in Phase 1
       const isGlobal = memory.scope === 'global' || memory.project_id === 'global'
       if (!isGlobal && memory.project_id !== currentProjectId) return false
       if (memory.anti_triggers?.length) {
@@ -330,22 +377,7 @@ export class SmartVectorRetrieval {
     const confidence = memory.confidence_score ?? 0.7
     if (confidence < 0.5) score -= 0.1
 
-    // EMOTIONAL RESONANCE: match emotional context
-    const emotionalKeywords: Record<string, string[]> = {
-      frustration: ['frustrated', 'annoying', 'stuck', 'ugh', 'damn', 'hate'],
-      excitement: ['excited', 'awesome', 'amazing', 'love', 'great', 'wow'],
-      curiosity: ['wonder', 'curious', 'interesting', 'how', 'why', 'what if'],
-      satisfaction: ['done', 'finished', 'complete', 'works', 'solved', 'finally'],
-      discovery: ['found', 'realized', 'understand', 'insight', 'breakthrough'],
-    }
-    const emotion = memory.emotional_resonance?.toLowerCase() ?? ''
-    const emotionKws = emotionalKeywords[emotion] ?? []
-    for (const ew of emotionKws) {
-      if (messageWords.has(ew) || messageLower.includes(ew)) {
-        score += 0.05
-        break
-      }
-    }
+    // NOTE: emotional_resonance matching removed in v3 (field deleted - 580 variants, unusable)
 
     return score
   }
@@ -370,6 +402,13 @@ export class SmartVectorRetrieval {
 
     const messageLower = currentMessage.toLowerCase()
     const messageWords = this._extractSignificantWords(currentMessage)
+    const messagePaths = this._extractFilePaths(currentMessage)
+
+    // Build lookup map for redirect resolution
+    const memoryById = new Map<string, StoredMemory>()
+    for (const m of allMemories) {
+      memoryById.set(m.id, m)
+    }
 
     // ================================================================
     // PHASE 0: PRE-FILTER (Binary exclusions)
@@ -383,13 +422,13 @@ export class SmartVectorRetrieval {
     // PHASE 1: ACTIVATION SIGNALS
     // Count how many signals agree this memory should activate
     // A memory is relevant if >= MIN_ACTIVATION_SIGNALS fire
+    // Handles redirects for superseded_by/resolved_by
     // ================================================================
     const activatedMemories: ActivatedMemory[] = []
+    const activatedIds = new Set<string>()
     let rejectedCount = 0
 
     for (const memory of candidates) {
-      const isGlobal = memory.scope === 'global' || memory.project_id === 'global'
-
       // Check each activation signal
       const triggerResult = this._checkTriggerActivation(
         messageLower, messageWords, memory.trigger_phrases ?? []
@@ -404,15 +443,17 @@ export class SmartVectorRetrieval {
         messageLower, messageWords, memory.feature
       )
       const contentActivated = this._checkContentActivation(messageWords, memory)
+      const filesActivated = this._checkFilesActivation(messagePaths, memory.related_files)
       const vectorSimilarity = this._calculateVectorSimilarity(queryEmbedding, memory.embedding)
 
-      // Count activated signals
+      // Count activated signals (now 7 possible signals)
       let signalCount = 0
       if (triggerResult.activated) signalCount++
       if (tagResult.activated) signalCount++
       if (domainActivated) signalCount++
       if (featureActivated) signalCount++
       if (contentActivated) signalCount++
+      if (filesActivated) signalCount++
       // Vector similarity as bonus signal only if very high
       if (vectorSimilarity >= 0.40) signalCount++
 
@@ -422,6 +463,7 @@ export class SmartVectorRetrieval {
         domain: domainActivated,
         feature: featureActivated,
         content: contentActivated,
+        files: filesActivated,
         count: signalCount,
         triggerStrength: triggerResult.strength,
         tagCount: tagResult.count,
@@ -434,15 +476,34 @@ export class SmartVectorRetrieval {
         continue
       }
 
+      // REDIRECT: If superseded_by or resolved_by exists, surface the replacement instead
+      let memoryToSurface = memory
+      if (memory.superseded_by || memory.resolved_by) {
+        const replacementId = memory.superseded_by ?? memory.resolved_by
+        const replacement = replacementId ? memoryById.get(replacementId) : undefined
+        if (replacement && replacement.status !== 'archived' && replacement.status !== 'deprecated') {
+          memoryToSurface = replacement
+          logger.debug(`Redirect: ${memory.id.slice(-8)} → ${replacement.id.slice(-8)} (${memory.superseded_by ? 'superseded' : 'resolved'})`, 'retrieval')
+        }
+      }
+
+      // Skip if we already added this memory (could happen from multiple redirects)
+      if (activatedIds.has(memoryToSurface.id)) {
+        continue
+      }
+
+      const isGlobal = memoryToSurface.scope === 'global' || memoryToSurface.project_id === 'global'
+
       // Calculate importance for ranking (Phase 2) - uses ALL rich metadata
-      const importanceScore = this._calculateImportanceScore(memory, signalCount, messageLower, messageWords)
+      const importanceScore = this._calculateImportanceScore(memoryToSurface, signalCount, messageLower, messageWords)
 
       activatedMemories.push({
-        memory,
+        memory: memoryToSurface,
         signals,
         importanceScore,
         isGlobal,
       })
+      activatedIds.add(memoryToSurface.id)
     }
 
     // Log diagnostics
@@ -532,23 +593,60 @@ export class SmartVectorRetrieval {
       selectedIds.add(item.memory.id)
     }
 
-    // PHASE 4: RELATED MEMORIES (if space remains)
+    // PHASE 4: LINKED MEMORIES (related_to, blocked_by, blocks)
+    // Pull in linked memories when space remains
     if (selected.length < maxMemories) {
-      const relatedIds = new Set<string>()
+      const linkedIds = new Set<string>()
+
       for (const item of selected) {
+        // related_to - explicit relationships
         for (const relatedId of item.memory.related_to ?? []) {
           if (!selectedIds.has(relatedId)) {
-            relatedIds.add(relatedId)
+            linkedIds.add(relatedId)
+          }
+        }
+        // blocked_by - show what's blocking this
+        if (item.memory.blocked_by && !selectedIds.has(item.memory.blocked_by)) {
+          linkedIds.add(item.memory.blocked_by)
+        }
+        // blocks - show what this blocks
+        for (const blockedId of item.memory.blocks ?? []) {
+          if (!selectedIds.has(blockedId)) {
+            linkedIds.add(blockedId)
           }
         }
       }
 
+      // First try to find linked memories in the activated list
       for (const item of activatedMemories) {
         if (selected.length >= maxMemories) break
         if (selectedIds.has(item.memory.id)) continue
-        if (relatedIds.has(item.memory.id)) {
+        if (linkedIds.has(item.memory.id)) {
           selected.push(item)
           selectedIds.add(item.memory.id)
+          logger.debug(`Linked: ${item.memory.id.slice(-8)} pulled by relationship`, 'retrieval')
+        }
+      }
+
+      // If linked memories weren't in activated list, pull them directly from allMemories
+      // (they might not have activated on their own but are important for context)
+      if (selected.length < maxMemories) {
+        for (const linkedId of linkedIds) {
+          if (selected.length >= maxMemories) break
+          if (selectedIds.has(linkedId)) continue
+
+          const linkedMemory = memoryById.get(linkedId)
+          if (linkedMemory && linkedMemory.status !== 'archived' && linkedMemory.status !== 'deprecated') {
+            const isGlobal = linkedMemory.scope === 'global' || linkedMemory.project_id === 'global'
+            selected.push({
+              memory: linkedMemory,
+              signals: { trigger: false, tags: false, domain: false, feature: false, content: false, files: false, count: 0, triggerStrength: 0, tagCount: 0, vectorSimilarity: 0 },
+              importanceScore: linkedMemory.importance_weight ?? 0.5,
+              isGlobal,
+            })
+            selectedIds.add(linkedId)
+            logger.debug(`Linked (direct): ${linkedId.slice(-8)} pulled for context`, 'retrieval')
+          }
         }
       }
     }
@@ -581,6 +679,7 @@ export class SmartVectorRetrieval {
           domain: item.signals.domain,
           feature: item.signals.feature,
           content: item.signals.content,
+          files: item.signals.files,
           vector: item.signals.vectorSimilarity >= 0.40,
           vectorSimilarity: item.signals.vectorSimilarity,
         },
@@ -590,8 +689,8 @@ export class SmartVectorRetrieval {
     // Convert to RetrievalResult format
     return selected.map(item => ({
       ...item.memory,
-      score: item.signals.count / 6,
-      relevance_score: item.signals.count / 6,
+      score: item.signals.count / 7,  // 7 possible signals
+      relevance_score: item.signals.count / 7,
       value_score: item.importanceScore,
     }))
   }
@@ -607,6 +706,7 @@ export class SmartVectorRetrieval {
     if (signals.domain) reasons.push('domain')
     if (signals.feature) reasons.push('feature')
     if (signals.content) reasons.push('content')
+    if (signals.files) reasons.push('files')
     if (signals.vectorSimilarity >= 0.40) reasons.push(`vector:${(signals.vectorSimilarity * 100).toFixed(0)}%`)
 
     return reasons.length
@@ -623,20 +723,21 @@ export class SmartVectorRetrieval {
     rejectedCount: number
   ): void {
     const signalBuckets: Record<string, number> = {
-      '2 signals': 0, '3 signals': 0, '4 signals': 0, '5 signals': 0, '6 signals': 0
+      '2 signals': 0, '3 signals': 0, '4 signals': 0, '5 signals': 0, '6 signals': 0, '7 signals': 0
     }
     for (const mem of activated) {
-      const key = `${Math.min(mem.signals.count, 6)} signals`
+      const key = `${Math.min(mem.signals.count, 7)} signals`
       signalBuckets[key] = (signalBuckets[key] ?? 0) + 1
     }
 
-    let triggerCount = 0, tagCount = 0, domainCount = 0, featureCount = 0, contentCount = 0, vectorCount = 0
+    let triggerCount = 0, tagCount = 0, domainCount = 0, featureCount = 0, contentCount = 0, filesCount = 0, vectorCount = 0
     for (const mem of activated) {
       if (mem.signals.trigger) triggerCount++
       if (mem.signals.tags) tagCount++
       if (mem.signals.domain) domainCount++
       if (mem.signals.feature) featureCount++
       if (mem.signals.content) contentCount++
+      if (mem.signals.files) filesCount++
       if (mem.signals.vectorSimilarity >= 0.40) vectorCount++
     }
 
@@ -660,6 +761,7 @@ export class SmartVectorRetrieval {
         domain: domainCount,
         feature: featureCount,
         content: contentCount,
+        files: filesCount,
         vector: vectorCount,
         total: activated.length,
       },

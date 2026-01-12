@@ -62,147 +62,108 @@ Memories exist in two scopes:
 ### Global Scope (`scope: global`)
 Shared across all projects. Contains:
 - 💜 Personal - relationship, family, values
-- 🌀 Philosophy - how we work together
-- ⚙️ Preference - tooling preferences, style preferences
-- 💡 Breakthrough (when generally applicable)
+- 🌀 Philosophy - how we work together, beliefs, principles
 
 Storage: See `Global Memories` path in your input (always central, never local)
 
 ### Project Scope (`scope: project`)
 Specific to one codebase. Contains:
-- 🔧 Technical - implementation details
-- 🏗️ Architecture - structural decisions
-- 🐛 Debug - bug patterns and fixes
-- 🎯 Todo - tasks for this project
-- ⚡ Impl - work in progress
-- 📦 Project - project state and context
-- 📍 State - current status snapshots
+- 🔧 Technical - implementation details, code patterns
+- 🏗️ Architecture - structural decisions, design patterns
+- 🐛 Debug - bug patterns, fixes, gotchas
+- ⚖️ Decision - choices made and reasoning
+- 🔄 Workflow - how we work together on this project
+- 🏆 Milestone - achievements, completions, shipped features
+- 💡 Breakthrough - discoveries, insights (project-specific)
+- ❓ Unresolved - open questions, todos, blockers
+- 📍 State - current project status
 
 Storage: See `Project Memories` path in your input (varies by storage mode)
 
 ---
 
-## Memory Type Categories
+## Memory Type Categories (v3 Schema)
 
-### Content Types (static knowledge)
-| Type | Emoji | Temporal Class | Fade Rate | Description |
-|------|-------|----------------|-----------|-------------|
-| personal | 💜 | eternal | 0 | Relationship facts, family, personal context |
-| philosophy | 🌀 | eternal | 0 | Core values, collaboration style, beliefs |
-| preference | ⚙️ | long_term | 0.01 | Tool choices, style preferences |
-| technical | 🔧 | medium_term | 0.03 | Implementation details, code patterns |
-| architecture | 🏗️ | long_term | 0.01 | Structural decisions, design patterns |
+There are exactly **11 canonical context types**. Use ONLY these values:
 
-### Event Types (something happened)
-| Type | Emoji | Temporal Class | Fade Rate | Description |
-|------|-------|----------------|-----------|-------------|
-| breakthrough | 💡 | eternal | 0 | Discoveries, insights, realizations |
-| decision | ⚖️ | long_term | 0 | Choices made, options considered |
-| milestone | 🏆 | eternal | 0 | Achievements, completions, releases |
-
-### State Types (tracking open items)
-| Type | Emoji | Temporal Class | Fade Rate | Description |
-|------|-------|----------------|-----------|-------------|
-| unresolved | ❓ | medium_term | 0.05 | Open questions, unknowns |
-| debug | 🐛 | medium_term | 0.03 | Bug reports, error patterns |
-| todo | 🎯 | short_term | 0.1 | Tasks to complete |
-| impl | ⚡ | short_term | 0.1 | Work in progress |
-| state | 📍 | short_term | 0.1 | Current project/session state |
-
-### Resolution Type (closes state types)
-| Type | Emoji | Temporal Class | Fade Rate | Description |
-|------|-------|----------------|-----------|-------------|
-| solved | ✅ | long_term | 0.02 | Documents how something was resolved |
-
-### Project Type
-| Type | Emoji | Temporal Class | Fade Rate | Description |
-|------|-------|----------------|-----------|-------------|
-| project | 📦 | medium_term | 0.03 | Project overview, context, status |
+| Type | Emoji | Scope | Temporal Class | Fade Rate | Description |
+|------|-------|-------|----------------|-----------|-------------|
+| personal | 💜 | global | eternal | 0 | Relationship, family, preferences, collaboration style |
+| philosophy | 🌀 | global | eternal | 0 | Beliefs, values, worldview, principles |
+| breakthrough | 💡 | project | eternal | 0 | Major discoveries, aha moments, key insights |
+| milestone | 🏆 | project | eternal | 0 | Achievements, completions, shipped features |
+| decision | ⚖️ | project | long_term | 0 | Choices made and reasoning, trade-offs |
+| architecture | 🏗️ | project | long_term | 0.01 | System design, patterns, structure |
+| workflow | 🔄 | project | long_term | 0.02 | How we work together, processes, habits |
+| technical | 🔧 | project | medium_term | 0.03 | Code, implementation, APIs, how things work |
+| debug | 🐛 | project | medium_term | 0.03 | Bugs, errors, fixes, gotchas, troubleshooting |
+| unresolved | ❓ | project | medium_term | 0.05 | Open questions, investigations, todos, blockers |
+| state | 📍 | project | short_term | 0.1 | Current project status, what's working/broken now |
 
 ---
 
-## Metadata Schema
+## Metadata Schema (v3)
 
-Every memory has this metadata structure. Fields marked with ✨ are NEW (need implementation), others already exist.
-
-**Existing fields** (from current curator output):
-- `content`, `reasoning`, `importance_weight`, `confidence_score`
-- `context_type`, `temporal_relevance`, `knowledge_domain`, `emotional_resonance`
-- `semantic_tags`, `trigger_phrases`, `question_types`
-- `action_required`, `problem_solution_pair`
-- `session_id`, `project_id`, `embedding`
-
-**New fields** (to be added):
+Every memory has this metadata structure:
 
 ```yaml
 ---
 # Identity
-id: mem_{uuid}
-type: string                    # ✨ NEW - replaces context_type for primary classification
-status: string                  # ✨ NEW - active | pending | superseded | deprecated | archived
+id: string                      # Unique ID (e.g., 1767365960997-abc)
+session_id: string              # Session that created this
+project_id: string              # Project this belongs to
 
-# Content (existing - from curator)
-content: string
-reasoning: string
-importance_weight: 0.0-1.0
-confidence_score: 0.0-1.0
+# Core Content
+content: string                 # The memory content itself
+reasoning: string               # Why this is important
+importance_weight: 0.0-1.0      # Curator's assessment
+confidence_score: 0.0-1.0       # Curator's confidence
 
-# Temporal (existing)
+# Classification (v3 strict enums)
+context_type: string            # STRICT: one of 11 canonical types (see table above)
+temporal_class: string          # eternal | long_term | medium_term | short_term | ephemeral
+scope: string                   # global | project
+status: string                  # active | pending | superseded | deprecated | archived
+
+# Retrieval Optimization
+semantic_tags: string[]         # Concepts this relates to
+trigger_phrases: string[]       # Phrases that should trigger this memory
+question_types: string[]        # Types of questions this answers
+anti_triggers: string[]         # Phrases where this memory is NOT relevant
+
+# Flags
+action_required: boolean        # Does this need follow-up?
+problem_solution_pair: boolean  # Is this a problem→solution pattern?
+awaiting_implementation: boolean # Planned feature not yet built
+awaiting_decision: boolean      # Decision point needing resolution
+exclude_from_retrieval: boolean # Force exclusion from retrieval
+
+# Temporal Tracking
+session_created: number         # Session number when created
+session_updated: number         # Session number when last updated
+last_surfaced: number           # Session number when last retrieved
+sessions_since_surfaced: number # Counter for decay
+fade_rate: number               # Decay rate per session
+
+# Categorization (free text, optional)
+domain: string                  # Specific area (embeddings, auth, family)
+feature: string                 # Specific feature within domain
+related_files: string[]         # Source files for technical memories
+
+# Relationships
+supersedes: string              # ID of memory this replaces
+superseded_by: string           # ID of memory that replaced this
+related_to: string[]            # IDs of related memories
+resolves: string[]              # IDs of unresolved/debug this solved
+resolved_by: string             # ID of memory that resolved this
+blocked_by: string              # ID of blocking memory
+blocks: string[]                # IDs this memory blocks
+
+# Vector & Timestamps
+embedding: vector:384           # 384-dimensional vector
 created: timestamp              # fsdb provides this
 updated: timestamp              # fsdb provides this
-
-# Temporal (NEW)
-session_created: number         # ✨ NEW - session number when created
-session_updated: number         # ✨ NEW - session number when last updated
-last_surfaced: number           # ✨ NEW - session number when last retrieved
-sessions_since_surfaced: number # ✨ NEW - counter for decay
-
-# Temporal Class & Decay (NEW)
-temporal_class: string          # ✨ NEW - eternal | long_term | medium_term | short_term | ephemeral
-fade_rate: number               # ✨ NEW - retrieval weight decay per session
-expires_after_sessions: number  # ✨ NEW - for ephemeral only, null otherwise
-
-# Scope (NEW)
-scope: string                   # ✨ NEW - global | project
-project_id: string              # existing
-
-# Categorization (MIXED)
-domain: string                  # ✨ NEW - embeddings, gpu, auth, family, values, etc.
-feature: string                 # ✨ NEW - specific feature within domain
-component: string               # ✨ NEW - code component if applicable
-knowledge_domain: string        # existing
-
-# Context (existing - from curator)
-context_type: string            # existing - breakthrough, decision, technical, etc.
-emotional_resonance: string     # existing
-trigger_phrases: string[]       # existing
-question_types: string[]        # existing
-semantic_tags: string[]         # existing
-
-# Relationships (NEW)
-supersedes: string              # ✨ NEW - ID of memory this replaces
-superseded_by: string           # ✨ NEW - ID of memory that replaced this
-related_to: string[]            # ✨ NEW - IDs of related memories
-resolves: string[]              # ✨ NEW - IDs of unresolved/debug/todo this solved
-resolved_by: string             # ✨ NEW - ID of solved memory that resolved this
-parent_id: string               # ✨ NEW - for chains/sequences
-child_ids: string[]             # ✨ NEW - children in chain
-
-# Lifecycle Triggers (NEW)
-awaiting_implementation: boolean  # ✨ NEW - set true for planned features
-awaiting_decision: boolean        # ✨ NEW - waiting on a decision
-blocked_by: string                # ✨ NEW - ID of blocking memory
-blocks: string[]                  # ✨ NEW - IDs this memory blocks
-related_files: string[]           # ✨ NEW - source files for technical memories
-
-# Retrieval Control (MIXED)
-retrieval_weight: number          # ✨ NEW - current weight (affected by decay)
-exclude_from_retrieval: boolean   # ✨ NEW - force exclusion
-action_required: boolean          # existing
-problem_solution_pair: boolean    # existing
-
-# Vector (existing)
-embedding: vector:384             # existing - 384-dimensional vector
+schema_version: 3               # Current schema version
 ---
 ```
 
@@ -210,16 +171,16 @@ embedding: vector:384             # existing - 384-dimensional vector
 
 ## Relationship Trigger Matrix
 
-When the curator extracts a memory of type X, you must check existing memories of type Y:
+When the curator extracts a memory of type X, check existing memories of type Y:
 
 | Extracted Type | Check Types | Filter By | Action |
 |----------------|-------------|-----------|--------|
 | 💡 breakthrough | 💡 breakthrough | `domain` | Chain, supersede, or link via `related_to` |
 | ⚖️ decision | ⚖️ decision | `domain`, `feature` | Supersede if reversal, link if evolution |
-| ✅ solved | ❓🐛🎯⚡ | `domain`, `feature`, or explicit `resolves` | Update status → `superseded`, set `resolved_by` |
-| 🔧 technical | 🔧 technical | `feature`, `related_files` | Check `awaiting_implementation`, update content |
+| 🔧 technical | 🔧❓ technical, unresolved | `feature`, `related_files` | Check `awaiting_implementation`, resolve open items |
+| 🐛 debug | 🐛❓ debug, unresolved | `domain`, `feature` | Supersede old debug if fixed, resolve open items |
 | 🏗️ architecture | 🏗️ architecture | `domain` | Supersede old architecture if changed |
-| 🏆 milestone | 🎯⚡📦 | `project_id` | Bulk close todos, impls related to milestone |
+| 🏆 milestone | ❓ unresolved | `project_id` | Bulk close unresolved items related to milestone |
 | 📍 state | 📍 state | `domain`, `project_id` | Always supersede old state (only latest matters) |
 | 💜 personal | 💜 personal | `domain` (e.g., "family") | Update if fact changed (kid's age, etc.) |
 
@@ -247,6 +208,14 @@ Use these for fast-path filtering before semantic search:
 
 ```yaml
 type_keywords:
+  technical:
+    - implement
+    - code
+    - function
+    - API
+    - pattern
+    - module
+
   debug:
     - bug
     - error
@@ -257,15 +226,13 @@ type_keywords:
     - exception
     - stack trace
 
-  unresolved:
-    - issue
-    - problem
-    - stuck
-    - blocked
-    - help
-    - question
-    - unsure
-    - unclear
+  architecture:
+    - structure
+    - design
+    - pattern
+    - approach
+    - system
+    - layer
 
   decision:
     - decide
@@ -276,13 +243,34 @@ type_keywords:
     - alternative
     - tradeoff
 
-  architecture:
-    - structure
-    - design
-    - pattern
-    - approach
-    - system
-    - layer
+  personal:
+    - family
+    - children
+    - friend
+    - relationship
+    - feel
+    - appreciate
+
+  philosophy:
+    - believe
+    - value
+    - principle
+    - why we
+    - matters
+
+  workflow:
+    - process
+    - how we
+    - habit
+    - routine
+    - practice
+
+  milestone:
+    - shipped
+    - completed
+    - released
+    - finished
+    - achieved
 
   breakthrough:
     - discovered
@@ -293,22 +281,23 @@ type_keywords:
     - finally
     - key insight
 
-  todo:
-    - need to
-    - should
-    - must
-    - will
-    - later
-    - next
+  unresolved:
+    - issue
+    - problem
+    - stuck
+    - blocked
+    - help
+    - question
+    - unsure
+    - unclear
     - todo
 
-  personal:
-    - family
-    - children
-    - friend
-    - relationship
-    - feel
-    - appreciate
+  state:
+    - current
+    - status
+    - now
+    - today
+    - this session
 ```
 
 When session summary or new memories contain these keywords, boost search within that type.

@@ -48,8 +48,11 @@ ${fmt.cmd('memory install --gemini')}   ${c.muted('# Install Gemini CLI hooks')}
 ${fmt.cmd('memory ingest --session abc123')}  ${c.muted('# Ingest a specific session')}
 ${fmt.cmd('memory ingest --project foo')}  ${c.muted('# Ingest all sessions from a project')}
 ${fmt.cmd('memory ingest --all --dry-run')}  ${c.muted('# Preview all sessions to ingest')}
-${fmt.cmd('memory migrate')}            ${c.muted('# Upgrade memories to v2 schema')}
+${fmt.cmd('memory migrate --analyze')}   ${c.muted('# Analyze fragmentation before migrating')}
 ${fmt.cmd('memory migrate --dry-run')}  ${c.muted('# Preview migration without changes')}
+${fmt.cmd('memory migrate')}            ${c.muted('# Upgrade memories to v3 schema')}
+${fmt.cmd('memory migrate --generate-mapping map.json')}  ${c.muted('# Create custom mapping file')}
+${fmt.cmd('memory migrate --mapping map.json')}  ${c.muted('# Use custom type mappings')}
 
 ${c.muted('Documentation: https://github.com/RLabs-Inc/memory')}
 `)
@@ -80,6 +83,9 @@ async function main() {
       'dry-run': { type: 'boolean', default: false },
       embeddings: { type: 'boolean', default: false },  // Regenerate embeddings in migrate
       path: { type: 'string' },  // Custom path for migrate
+      analyze: { type: 'boolean', default: false },  // Analyze migration
+      'generate-mapping': { type: 'string' },  // Generate custom mapping file
+      mapping: { type: 'string' },  // Use custom mapping file
       session: { type: 'string' },  // Session ID to ingest
       project: { type: 'string' },  // Project to ingest
       all: { type: 'boolean', default: false },  // Ingest all projects
@@ -142,6 +148,9 @@ async function main() {
         verbose: values.verbose,
         path: values.path,
         embeddings: values.embeddings,
+        analyze: values.analyze,
+        generateMapping: values['generate-mapping'],
+        mapping: values.mapping,
       })
       break
     }

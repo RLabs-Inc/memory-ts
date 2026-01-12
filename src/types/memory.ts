@@ -4,60 +4,43 @@
 // ============================================================================
 
 /**
- * Context types for memories - what kind of insight is this?
+ * Context types for memories - STRICT ENUM (v3 schema)
+ * NO custom strings allowed - use exactly these 11 values
  */
 export type ContextType =
-  | 'breakthrough'      // Major discovery or insight
-  | 'decision'          // Important decision made
-  | 'personal'          // Personal/relationship information
-  | 'technical'         // Technical knowledge
-  | 'technical_state'   // Current technical state
-  | 'unresolved'        // Open question or problem
-  | 'preference'        // User preference
-  | 'workflow'          // How user likes to work
-  | 'architectural'     // System design decisions
-  | 'debugging'         // Debug insights
-  | 'philosophy'        // Philosophical discussions
-  | string              // Allow custom types
+  | 'technical'      // Code, implementation, APIs, how things work
+  | 'debug'          // Bugs, errors, fixes, gotchas, troubleshooting
+  | 'architecture'   // System design, patterns, structure
+  | 'decision'       // Choices made and reasoning, trade-offs
+  | 'personal'       // Relationship, family, preferences, collaboration style
+  | 'philosophy'     // Beliefs, values, worldview, principles
+  | 'workflow'       // How we work together, processes, habits
+  | 'milestone'      // Achievements, completions, shipped features
+  | 'breakthrough'   // Major discoveries, aha moments, key insights
+  | 'unresolved'     // Open questions, investigations, todos, blockers
+  | 'state'          // Current project status, what's working/broken now
+
+export const CONTEXT_TYPES = [
+  'technical', 'debug', 'architecture', 'decision', 'personal',
+  'philosophy', 'workflow', 'milestone', 'breakthrough', 'unresolved', 'state'
+] as const
 
 /**
- * Temporal relevance - how long should this memory persist?
+ * Temporal class - how long should this memory persist? (v3: replaces temporal_relevance)
  */
-export type TemporalRelevance =
-  | 'persistent'        // Always relevant (0.8 score)
-  | 'session'           // Session-specific (0.6 score)
-  | 'temporary'         // Short-term (0.3 score)
-  | 'archived'          // Historical (0.1 score)
+export type TemporalClass =
+  | 'eternal'           // Never fades (personal, philosophy, breakthroughs)
+  | 'long_term'         // Years - fades slowly (decisions, architecture)
+  | 'medium_term'       // Weeks - normal fade (technical, debug)
+  | 'short_term'        // Days - fades quickly (state, todos)
+  | 'ephemeral'         // Session only - surface once then expire
 
-/**
- * Emotional resonance - the emotional context of the memory
- */
-export type EmotionalResonance =
-  | 'joy'
-  | 'frustration'
-  | 'discovery'
-  | 'gratitude'
-  | 'curiosity'
-  | 'determination'
-  | 'satisfaction'
-  | 'neutral'
-  | string              // Allow custom emotions
-
-/**
- * Knowledge domains - what area does this memory relate to?
- */
-export type KnowledgeDomain =
-  | 'architecture'
-  | 'debugging'
-  | 'philosophy'
-  | 'workflow'
-  | 'personal'
-  | 'project'
-  | 'tooling'
-  | 'testing'
-  | 'deployment'
-  | 'security'
-  | string              // Allow custom domains
+// NOTE: Removed in v3:
+// - TemporalRelevance (replaced by TemporalClass)
+// - EmotionalResonance (580 variants, never used)
+// - KnowledgeDomain (overlaps with project_id + domain)
+// - EmotionalResonance: 580 variants, never used in retrieval
+// - KnowledgeDomain: overlaps with project_id + domain field
 
 /**
  * Trigger types for memory curation
@@ -71,7 +54,7 @@ export type CurationTrigger =
 
 /**
  * A memory curated by Claude with semantic understanding
- * EXACT MATCH to Python CuratedMemory dataclass
+ * v3 schema - consolidated metadata, strict context types
  */
 export interface CuratedMemory {
   // Core content
@@ -80,10 +63,9 @@ export interface CuratedMemory {
   semantic_tags: string[]                   // Concepts this relates to
   reasoning: string                         // Why Claude thinks this is important
 
-  // Classification
-  context_type: ContextType                 // breakthrough, decision, technical, etc.
-  temporal_relevance: TemporalRelevance     // persistent, session, temporary
-  knowledge_domain: KnowledgeDomain         // architecture, debugging, philosophy, etc.
+  // Classification (v3: strict enums)
+  context_type: ContextType                 // STRICT: one of 11 canonical types
+  temporal_class: TemporalClass             // How long this memory persists
 
   // Flags
   action_required: boolean                  // Does this need follow-up?
@@ -93,15 +75,9 @@ export interface CuratedMemory {
   // Retrieval optimization (the secret sauce)
   trigger_phrases: string[]                 // Phrases that should trigger this memory
   question_types: string[]                  // Types of questions this answers
-  emotional_resonance: EmotionalResonance   // joy, frustration, discovery, gratitude
-
-  // Optional extended metadata (from Python, may not always be present)
   anti_triggers?: string[]                  // Phrases where this memory is NOT relevant
-  prerequisite_understanding?: string[]     // Concepts user should know first
-  follow_up_context?: string[]              // What might come next
-  dependency_context?: string[]             // Other memories this relates to
 
-  // ========== V2 CURATOR FIELDS (optional - get smart defaults if not provided) ==========
+  // ========== V2+ CURATOR FIELDS (optional - get smart defaults if not provided) ==========
   scope?: 'global' | 'project'              // Shared across projects or project-specific
   temporal_class?: 'eternal' | 'long_term' | 'medium_term' | 'short_term' | 'ephemeral'
   domain?: string                           // Specific area (embeddings, auth, family)
@@ -113,7 +89,7 @@ export interface CuratedMemory {
 
 /**
  * A stored memory with database metadata
- * Includes v2 lifecycle management fields (optional for backwards compat)
+ * v3 schema - removed unused fields, consolidated metadata
  */
 export interface StoredMemory extends CuratedMemory {
   id: string                                // Unique identifier
@@ -124,7 +100,7 @@ export interface StoredMemory extends CuratedMemory {
   embedding?: Float32Array                  // Vector embedding (384 dimensions)
   stale?: boolean                           // Is embedding out of sync with content?
 
-  // ========== V2 LIFECYCLE FIELDS (optional for backwards compat) ==========
+  // ========== LIFECYCLE FIELDS ==========
   status?: 'active' | 'pending' | 'superseded' | 'deprecated' | 'archived'
   scope?: 'global' | 'project'
 
@@ -133,16 +109,11 @@ export interface StoredMemory extends CuratedMemory {
   session_updated?: number
   last_surfaced?: number
   sessions_since_surfaced?: number
-
-  // Temporal class & decay
-  temporal_class?: 'eternal' | 'long_term' | 'medium_term' | 'short_term' | 'ephemeral'
-  fade_rate?: number
-  expires_after_sessions?: number
+  fade_rate?: number                        // Decay rate per session (derived from temporal_class)
 
   // Categorization
   domain?: string
   feature?: string
-  component?: string
 
   // Relationships
   supersedes?: string
@@ -150,8 +121,6 @@ export interface StoredMemory extends CuratedMemory {
   related_to?: string[]
   resolves?: string[]
   resolved_by?: string
-  parent_id?: string
-  child_ids?: string[]
 
   // Lifecycle triggers
   awaiting_implementation?: boolean
@@ -161,7 +130,6 @@ export interface StoredMemory extends CuratedMemory {
   related_files?: string[]
 
   // Retrieval control
-  retrieval_weight?: number
   exclude_from_retrieval?: boolean
 
   // Schema version
@@ -169,27 +137,24 @@ export interface StoredMemory extends CuratedMemory {
 }
 
 /**
- * Default values for v2 fields based on context_type
- * Used for backwards compatibility with v1 memories
+ * Default values for v3 fields based on context_type
+ * Uses only the 11 canonical context types
  */
-export const V2_DEFAULTS = {
-  // Type-specific defaults
+export const V3_DEFAULTS = {
+  // Type-specific defaults (all 11 canonical types)
   typeDefaults: {
     personal: { scope: 'global', temporal_class: 'eternal', fade_rate: 0 },
     philosophy: { scope: 'global', temporal_class: 'eternal', fade_rate: 0 },
-    preference: { scope: 'global', temporal_class: 'long_term', fade_rate: 0.01 },
     breakthrough: { scope: 'project', temporal_class: 'eternal', fade_rate: 0 },
-    decision: { scope: 'project', temporal_class: 'long_term', fade_rate: 0 },
     milestone: { scope: 'project', temporal_class: 'eternal', fade_rate: 0 },
-    technical: { scope: 'project', temporal_class: 'medium_term', fade_rate: 0.03 },
-    architectural: { scope: 'project', temporal_class: 'long_term', fade_rate: 0.01 },
-    debugging: { scope: 'project', temporal_class: 'medium_term', fade_rate: 0.03 },
-    unresolved: { scope: 'project', temporal_class: 'medium_term', fade_rate: 0.05 },
-    todo: { scope: 'project', temporal_class: 'short_term', fade_rate: 0.1 },
-    technical_state: { scope: 'project', temporal_class: 'short_term', fade_rate: 0.1 },
+    decision: { scope: 'project', temporal_class: 'long_term', fade_rate: 0 },
+    architecture: { scope: 'project', temporal_class: 'long_term', fade_rate: 0.01 },
     workflow: { scope: 'project', temporal_class: 'long_term', fade_rate: 0.02 },
-    project_context: { scope: 'project', temporal_class: 'medium_term', fade_rate: 0.03 },
-  } as Record<string, { scope: string; temporal_class: string; fade_rate: number }>,
+    technical: { scope: 'project', temporal_class: 'medium_term', fade_rate: 0.03 },
+    debug: { scope: 'project', temporal_class: 'medium_term', fade_rate: 0.03 },
+    unresolved: { scope: 'project', temporal_class: 'medium_term', fade_rate: 0.05 },
+    state: { scope: 'project', temporal_class: 'short_term', fade_rate: 0.1 },
+  } as Record<ContextType, { scope: 'global' | 'project'; temporal_class: string; fade_rate: number }>,
 
   // Fallback defaults
   fallback: {
@@ -204,56 +169,58 @@ export const V2_DEFAULTS = {
   },
 }
 
+// Backwards compatibility alias
+export const V2_DEFAULTS = V3_DEFAULTS
+
 /**
- * Apply v2 defaults to a memory (for backwards compatibility)
+ * Apply v3 defaults to a memory
  * Uses context_type to determine appropriate defaults
  */
-export function applyV2Defaults(memory: Partial<StoredMemory>): StoredMemory {
-  const contextType = memory.context_type ?? 'general'
-  const typeDefaults = V2_DEFAULTS.typeDefaults[contextType] ?? V2_DEFAULTS.typeDefaults.technical
+export function applyV3Defaults(memory: Partial<StoredMemory>): StoredMemory {
+  const contextType = (memory.context_type ?? 'technical') as ContextType
+  const typeDefaults = V3_DEFAULTS.typeDefaults[contextType] ?? V3_DEFAULTS.typeDefaults.technical
 
   return {
     // Spread existing memory
     ...memory,
 
     // Apply status default
-    status: memory.status ?? V2_DEFAULTS.fallback.status,
+    status: memory.status ?? V3_DEFAULTS.fallback.status,
 
     // Apply scope from type defaults
-    scope: memory.scope ?? typeDefaults?.scope ?? V2_DEFAULTS.fallback.scope,
+    scope: memory.scope ?? typeDefaults?.scope ?? V3_DEFAULTS.fallback.scope,
 
     // Apply temporal class from type defaults
-    temporal_class: memory.temporal_class ?? typeDefaults?.temporal_class ?? V2_DEFAULTS.fallback.temporal_class,
+    temporal_class: memory.temporal_class ?? typeDefaults?.temporal_class ?? V3_DEFAULTS.fallback.temporal_class,
 
     // Apply fade rate from type defaults
-    fade_rate: memory.fade_rate ?? typeDefaults?.fade_rate ?? V2_DEFAULTS.fallback.fade_rate,
+    fade_rate: memory.fade_rate ?? typeDefaults?.fade_rate ?? V3_DEFAULTS.fallback.fade_rate,
 
     // Apply other defaults
-    sessions_since_surfaced: memory.sessions_since_surfaced ?? V2_DEFAULTS.fallback.sessions_since_surfaced,
-    awaiting_implementation: memory.awaiting_implementation ?? V2_DEFAULTS.fallback.awaiting_implementation,
-    awaiting_decision: memory.awaiting_decision ?? V2_DEFAULTS.fallback.awaiting_decision,
-    exclude_from_retrieval: memory.exclude_from_retrieval ?? V2_DEFAULTS.fallback.exclude_from_retrieval,
-
-    // Retrieval weight defaults to importance_weight
-    retrieval_weight: memory.retrieval_weight ?? memory.importance_weight ?? 0.5,
+    sessions_since_surfaced: memory.sessions_since_surfaced ?? V3_DEFAULTS.fallback.sessions_since_surfaced,
+    awaiting_implementation: memory.awaiting_implementation ?? V3_DEFAULTS.fallback.awaiting_implementation,
+    awaiting_decision: memory.awaiting_decision ?? V3_DEFAULTS.fallback.awaiting_decision,
+    exclude_from_retrieval: memory.exclude_from_retrieval ?? V3_DEFAULTS.fallback.exclude_from_retrieval,
 
     // Initialize empty arrays if not present
     related_to: memory.related_to ?? [],
     resolves: memory.resolves ?? [],
-    child_ids: memory.child_ids ?? [],
     blocks: memory.blocks ?? [],
     related_files: memory.related_files ?? [],
 
     // Mark as current schema version
-    schema_version: memory.schema_version ?? 2,
+    schema_version: memory.schema_version ?? 3,
   } as StoredMemory
 }
 
+// Backwards compatibility alias
+export const applyV2Defaults = applyV3Defaults
+
 /**
- * Check if a memory needs migration (is v1)
+ * Check if a memory needs migration to v3
  */
 export function needsMigration(memory: Partial<StoredMemory>): boolean {
-  return !memory.schema_version || memory.schema_version < 2
+  return !memory.schema_version || memory.schema_version < 3
 }
 
 /**
@@ -315,27 +282,21 @@ export interface SessionPrimer {
 }
 
 /**
- * Emoji map for memory context types
+ * Emoji map for memory context types (v3 schema)
  * Compact visual representation for efficient parsing
  */
-export const MEMORY_TYPE_EMOJI: Record<string, string> = {
-  breakthrough: '💡',      // Insight, discovery
-  decision: '⚖️',          // Choice made
-  personal: '💜',          // Relationship, friendship
-  technical: '🔧',         // Technical knowledge
-  technical_state: '📍',   // Current state
-  unresolved: '❓',        // Open question
-  preference: '⚙️',        // User preference
-  workflow: '🔄',          // How work flows
-  architectural: '🏗️',     // System design
-  debugging: '🐛',         // Debug insight
-  philosophy: '🌀',        // Deeper thinking
-  todo: '🎯',              // Action needed
-  implementation: '⚡',    // Implementation detail
-  problem_solution: '✅',  // Problem→Solution pair
-  project_context: '📦',   // Project context
-  milestone: '🏆',         // Achievement
-  general: '📝',           // General note
+export const MEMORY_TYPE_EMOJI: Record<ContextType, string> = {
+  technical: '🔧',      // Wrench - building/fixing code
+  debug: '🐛',          // Bug - debugging
+  architecture: '🏗️',   // Construction - system design
+  decision: '⚖️',       // Scale - weighing options
+  personal: '💜',       // Purple heart - relationship
+  philosophy: '🌀',     // Spiral - deeper thinking
+  workflow: '🔄',       // Cycle - processes
+  milestone: '🏆',      // Trophy - achievement
+  breakthrough: '💡',   // Lightbulb - insight
+  unresolved: '❓',     // Question - open items
+  state: '📍',          // Pin - current status
 }
 
 /**
