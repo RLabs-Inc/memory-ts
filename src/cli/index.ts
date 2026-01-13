@@ -5,8 +5,9 @@
 
 import { parseArgs } from 'util'
 import { c, symbols, fmt } from './colors.ts'
+import packageJson from '../../package.json'
 
-const VERSION = '0.1.0'
+const VERSION = packageJson.version
 
 /**
  * Show help message

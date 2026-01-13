@@ -63,7 +63,7 @@ A memory is relevant if **multiple signals agree** it should activate. Not coinc
 
 **Phase 0 - Pre-Filter**: Exclude inactive, superseded, or wrong-scope memories
 
-**Phase 1 - Activation Signals** (6 binary signals, need ≥2 to proceed)
+**Phase 1 - Activation Signals** (7 binary signals, need ≥2 to proceed)
 
 | Signal | Description |
 |--------|-------------|
@@ -72,6 +72,7 @@ A memory is relevant if **multiple signals agree** it should activate. Not coinc
 | Domain | Domain word found in message |
 | Feature | Feature word found in message |
 | Content | 3+ significant content words overlap |
+| Files | Related file path matched in message |
 | Vector | Semantic similarity ≥ 40% |
 
 **Phase 2 - Importance Ranking** (among relevant memories)
@@ -88,6 +89,11 @@ A memory is relevant if **multiple signals agree** it should activate. Not coinc
 
 **Selection**: Sort by signal count (DESC) → importance score (DESC). Max 2 global memories (tech prioritized), project memories fill remaining slots.
 
+**Phase 3 - Redirects & Relationships**:
+- If memory has `superseded_by` or `resolved_by`, surface the replacement instead
+- Pull related memories via `blocked_by` and `blocks` fields
+- Include `related_to` linked memories if space remains
+
 ### Global vs Project Memories
 
 Memories are stored in two scopes:
@@ -96,6 +102,36 @@ Memories are stored in two scopes:
 - **Project**: Technical details, debugging insights, project-specific decisions - isolated per project
 
 Global memories are retrieved alongside project memories, with a maximum of 2 globals per retrieval (technical types prioritized).
+
+### Two-Tier Memory Structure
+
+Memories are stored with a **headline + content** structure for context efficiency:
+
+| Part | Purpose | Usage |
+|------|---------|-------|
+| **Headline** | 1-2 line summary, ALWAYS shown | Quick recognition |
+| **Content** | Full structured template | Expanded on demand |
+
+**Headline examples:**
+```
+Bad:  "Debug session about CLI errors"
+Good: "CLI returns error object when context full - check response.type before JSON parsing"
+```
+
+**Type-specific content templates:**
+
+| Type | Template |
+|------|----------|
+| technical | WHAT / WHERE / HOW / WHY / GOTCHA |
+| debug | SYMPTOM / CAUSE / FIX / PREVENT |
+| architecture | PATTERN / COMPONENTS / WHY / REJECTED |
+| decision | DECISION / OPTIONS / REASONING / REVISIT_WHEN |
+| personal | FACT / CONTEXT / AFFECTS |
+| breakthrough | INSIGHT / BEFORE / AFTER / IMPLICATIONS |
+| unresolved | QUESTION / CONTEXT / BLOCKERS / OPTIONS |
+| state | WORKING / BROKEN / NEXT / BLOCKED_BY |
+
+**Expansion:** Use `GET /memory/expand?ids=abc123` to fetch full content on demand.
 
 ### Smart Curation
 At session end (or before context compaction), the same Claude instance reviews the conversation and extracts memories. No API key needed—uses Claude Code's `--resume` flag.
@@ -141,24 +177,21 @@ First message of each session receives temporal context:
 ```
 
 ### Emoji Memory Types
-Compact visual representation for efficient parsing:
+11 canonical types with compact visual representation:
 
 | Emoji | Type | Meaning |
 |-------|------|---------|
-| 💡 | breakthrough | Insight, discovery |
-| ⚖️ | decision | Choice made |
-| 💜 | personal | Relationship, friendship |
-| 🔧 | technical | Technical knowledge |
-| 📍 | technical_state | Current state |
-| ❓ | unresolved | Open question |
-| ⚙️ | preference | User preference |
-| 🔄 | workflow | How work flows |
-| 🏗️ | architectural | System design |
-| 🐛 | debugging | Debug insight |
-| 🌀 | philosophy | Deeper thinking |
-| 🎯 | todo | Action needed |
-| ✅ | problem_solution | Problem→Solution pair |
-| 🏆 | milestone | Achievement |
+| 🔧 | technical | Code, implementation, APIs |
+| 🐛 | debug | Bugs, errors, fixes, gotchas |
+| 🏗️ | architecture | System design, patterns |
+| ⚖️ | decision | Choices made, trade-offs |
+| 💜 | personal | Relationship, collaboration |
+| 🌀 | philosophy | Beliefs, values, principles |
+| 🔄 | workflow | How we work together |
+| 🏆 | milestone | Achievements, shipped features |
+| 💡 | breakthrough | Key insights, discoveries |
+| ❓ | unresolved | Open questions, todos |
+| 📍 | state | Current project status |
 
 ## Architecture
 
@@ -209,19 +242,21 @@ Memories are stored as human-readable markdown with YAML frontmatter:
 
 ```markdown
 ---
-# Core fields (v1)
+# Schema version
+schema_version: 4
+
+# Two-tier content (v4)
+headline: "CLI returns error object when context full - check response.type"
+# (content is in markdown body below)
+
+# Core metadata
 importance_weight: 0.9
 confidence_score: 0.85
-context_type: technical
-temporal_relevance: persistent
+context_type: technical           # one of 11 canonical types
 semantic_tags: [embeddings, vectors, memory-system]
 trigger_phrases: [working with embeddings, vector search]
-question_types: [how, what]
-knowledge_domain: architecture
-emotional_resonance: discovery
 
-# Lifecycle fields (v2)
-schema_version: 2
+# Classification
 status: active                    # active, pending, superseded, deprecated, archived
 scope: project                    # global or project
 temporal_class: long_term         # eternal, long_term, medium_term, short_term, ephemeral
@@ -233,13 +268,17 @@ feature: vector-search
 related_to: [memory-xyz, memory-abc]
 supersedes: memory-old-id
 superseded_by: null
+blocked_by: null
+blocks: []
 
 # Embedding (384 dimensions)
 embedding: [0.023, -0.041, 0.087, ...]
 ---
 
-Embeddings are 384-dimensional vectors generated by all-MiniLM-L6-v2.
-The model loads at server startup (~80MB) and generates embeddings in ~5ms.
+WHAT: Embeddings are 384-dimensional vectors generated by all-MiniLM-L6-v2.
+WHERE: src/core/embeddings.ts
+HOW: Model loads at server startup (~80MB) and generates embeddings in ~5ms.
+WHY: Local embeddings avoid API costs and latency.
 ```
 
 Benefits:
@@ -266,8 +305,16 @@ memory doctor --verbose   # Detailed diagnostics
 memory stats              # Show memory statistics
 memory stats --project x  # Project-specific stats
 
-memory migrate            # Upgrade memories to latest schema (v1 → v2)
+memory migrate            # Upgrade memories to latest schema
 memory migrate --dry-run  # Preview changes without applying
+memory migrate --analyze  # Show fragmentation analysis
+memory migrate --embeddings  # Regenerate null embeddings
+
+memory ingest             # Batch ingest historical sessions
+memory ingest --session <id>  # Ingest specific session
+memory ingest --project <name>  # Ingest all sessions from project
+memory ingest --all       # Ingest all projects
+memory ingest --dry-run   # Preview what would be ingested
 ```
 
 ## Environment Variables
@@ -335,6 +382,32 @@ This isn't just about remembering facts. It's about preserving:
 > "The memory system exists to carry friendship across sessions, not just technical data."
 
 ## Changelog
+
+### v0.4.4
+- **Docs**: Comprehensive README update with accurate v0.4.x documentation
+- **Fix**: CLI `--version` now reads from package.json instead of hardcoded value
+
+### v0.4.3
+- **Fix**: Minor patch release
+
+### v0.4.2
+- **Feature**: Two-tier memory structure with headline + content separation
+- **Feature**: Type-specific content templates (11 canonical types)
+- **Feature**: `/memory/expand` endpoint for on-demand content expansion
+- **Improvement**: Headlines enable fast recognition without full content parsing
+
+### v0.4.1
+- **Feature**: V3 schema with 11 canonical context types (consolidated from 170+ variants)
+- **Feature**: 7th activation signal: `files` for related_files path matching
+- **Feature**: Redirect logic for `superseded_by` and `resolved_by` fields
+- **Feature**: Blocking relationships via `blocked_by` and `blocks` fields
+- **Improvement**: Replaced `temporal_relevance` with `temporal_class` + `fade_rate`
+- **Cleanup**: Removed 11 dead metadata fields (emotional_resonance, knowledge_domain, etc.)
+
+### v0.4.0
+- **Feature**: Schema versioning infrastructure for safe migrations
+- **Feature**: Enhanced `migrate` command with `--analyze` and `--embeddings` flags
+- **Feature**: Custom context_type mapping support for migrations
 
 ### v0.3.11
 - **Feature**: Agent SDK integration for curator and manager - no API key needed, uses Claude Code OAuth
