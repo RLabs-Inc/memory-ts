@@ -6,6 +6,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { c, symbols, fmt } from '../colors.ts'
+import { getCliCommand, getHookCommand } from '../invocation.ts'
 
 interface InstallOptions {
   verbose?: boolean
@@ -41,23 +42,11 @@ async function installClaudeHooks(options: InstallOptions) {
   const claudeDir = join(homedir(), '.claude')
   const settingsPath = join(claudeDir, 'settings.json')
 
-  // Find the hooks directory (relative to this CLI)
-  const cliPath = import.meta.dir
-  const packageRoot = join(cliPath, '..', '..', '..')
-  const hooksDir = join(packageRoot, 'hooks', 'claude')
-
+  // Detect CLI invocation method
+  const cliCommand = getCliCommand()
   console.log(`  ${fmt.kv('Claude config', claudeDir)}`)
-  console.log(`  ${fmt.kv('Hooks source', hooksDir)}`)
+  console.log(`  ${fmt.kv('CLI command', cliCommand)}`)
   console.log()
-
-  // Check if hooks directory exists
-  if (!existsSync(hooksDir)) {
-    console.log(
-      c.error(`  ${symbols.cross} Hooks directory not found at ${hooksDir}`)
-    )
-    console.log(c.muted(`  Make sure the memory package is properly installed`))
-    process.exit(1)
-  }
 
   // Ensure .claude directory exists
   if (!existsSync(claudeDir)) {
@@ -83,11 +72,7 @@ async function installClaudeHooks(options: InstallOptions) {
     }
   }
 
-  // Build hooks configuration
-  const sessionStartHook = join(hooksDir, 'session-start.ts')
-  const userPromptHook = join(hooksDir, 'user-prompt.ts')
-  const curationHook = join(hooksDir, 'curation.ts')
-
+  // Build hooks configuration using CLI subcommands
   const hooksConfig = {
     SessionStart: [
       {
@@ -95,7 +80,7 @@ async function installClaudeHooks(options: InstallOptions) {
         hooks: [
           {
             type: 'command',
-            command: `bun "${sessionStartHook}"`,
+            command: getHookCommand('session-start', 'claude'),
             timeout: 10,
           },
         ],
@@ -106,7 +91,7 @@ async function installClaudeHooks(options: InstallOptions) {
         hooks: [
           {
             type: 'command',
-            command: `bun "${userPromptHook}"`,
+            command: getHookCommand('user-prompt', 'claude'),
             timeout: 10,
           },
         ],
@@ -118,7 +103,7 @@ async function installClaudeHooks(options: InstallOptions) {
         hooks: [
           {
             type: 'command',
-            command: `bun "${curationHook}"`,
+            command: getHookCommand('curation', 'claude'),
             timeout: 120,
           },
         ],
@@ -129,7 +114,7 @@ async function installClaudeHooks(options: InstallOptions) {
         hooks: [
           {
             type: 'command',
-            command: `bun "${curationHook}"`,
+            command: getHookCommand('curation', 'claude'),
             timeout: 120,
           },
         ],
@@ -201,26 +186,13 @@ async function installGeminiHooks(options: InstallOptions) {
   console.log()
 
   const geminiDir = join(homedir(), '.gemini')
-  const targetHooksDir = join(geminiDir, 'hooks')
   const settingsPath = join(geminiDir, 'settings.json')
 
-  // Find the hooks directory (relative to this CLI)
-  const cliPath = import.meta.dir
-  const packageRoot = join(cliPath, '..', '..', '..')
-  const hooksDir = join(packageRoot, 'hooks', 'gemini')
-
+  // Detect CLI invocation method
+  const cliCommand = getCliCommand()
   console.log(`  ${fmt.kv('Gemini config', geminiDir)}`)
-  console.log(`  ${fmt.kv('Hooks source', hooksDir)}`)
-  console.log(`  ${fmt.kv('Hooks target', targetHooksDir)}`)
+  console.log(`  ${fmt.kv('CLI command', cliCommand)}`)
   console.log()
-
-  // Check if source hooks directory exists
-  if (!existsSync(hooksDir)) {
-    console.log(
-      c.error(`  ${symbols.cross} Hooks directory not found at ${hooksDir}`)
-    )
-    process.exit(1)
-  }
 
   // Ensure .gemini directory exists
   if (!existsSync(geminiDir)) {
@@ -241,34 +213,6 @@ async function installGeminiHooks(options: InstallOptions) {
     }
   }
 
-  // Ensure target hooks directory exists
-  if (!existsSync(targetHooksDir)) {
-    try {
-      mkdirSync(targetHooksDir, { recursive: true })
-      console.log(`  ${c.success(symbols.tick)} Created ${targetHooksDir}`)
-    } catch {
-      console.log(
-        `  ${c.warn(symbols.warning)} Could not create ${targetHooksDir}`
-      )
-    }
-  }
-
-  // Copy hooks to target directory
-  const filesToCopy = ['session-start.ts', 'user-prompt.ts', 'curation.ts']
-  for (const file of filesToCopy) {
-    const source = join(hooksDir, file)
-    const target = join(targetHooksDir, file)
-    try {
-      const content = await Bun.file(source).text()
-      await Bun.write(target, content)
-      console.log(`  ${c.success(symbols.tick)} Installed hook: ${file}`)
-    } catch (e: any) {
-      console.log(
-        `  ${c.error(symbols.cross)} Failed to copy ${file}: ${e.message}`
-      )
-    }
-  }
-
   // Read existing settings or create new
   let settings: any = {}
   if (existsSync(settingsPath)) {
@@ -281,11 +225,7 @@ async function installGeminiHooks(options: InstallOptions) {
     }
   }
 
-  // Build hooks configuration pointing to TARGET directory
-  const sessionStartHook = join(targetHooksDir, 'session-start.ts')
-  const userPromptHook = join(targetHooksDir, 'user-prompt.ts')
-  const curationHook = join(targetHooksDir, 'curation.ts')
-
+  // Build hooks configuration using CLI subcommands
   // Based on Gemini CLI documentation
   const hooksConfig = {
     SessionStart: [
@@ -295,7 +235,7 @@ async function installGeminiHooks(options: InstallOptions) {
           {
             name: 'load-session-primer',
             type: 'command',
-            command: `bun "${sessionStartHook}"`,
+            command: getHookCommand('session-start', 'gemini'),
             description: 'Load session primer at the beginning of a session',
           },
         ],
@@ -308,7 +248,7 @@ async function installGeminiHooks(options: InstallOptions) {
           {
             name: 'inject-memories',
             type: 'command',
-            command: `bun "${userPromptHook}"`,
+            command: getHookCommand('user-prompt', 'gemini'),
             description: 'Inject relevant memories into user prompt',
           },
         ],
@@ -321,7 +261,7 @@ async function installGeminiHooks(options: InstallOptions) {
           {
             name: 'curate-memories',
             type: 'command',
-            command: `bun "${curationHook}"`,
+            command: getHookCommand('curation', 'gemini'),
             description: 'Curate memories before context compression',
           },
         ],
@@ -334,7 +274,7 @@ async function installGeminiHooks(options: InstallOptions) {
           {
             name: 'curate-memories',
             type: 'command',
-            command: `bun "${curationHook}"`,
+            command: getHookCommand('curation', 'gemini'),
             description: 'Curate memories before session end',
           },
         ],
