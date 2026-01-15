@@ -543,7 +543,6 @@ This session has ended. Please curate the memories from this conversation accord
       options: {
         systemPrompt,
         permissionMode: 'bypassPermissions',
-        maxTurns: 1,
         model: 'claude-opus-4-5-20251101',
       },
     })
@@ -688,8 +687,7 @@ This session has ended. Please curate the memories from this conversation accord
         '--resume', sessionId,
         '-p', userMessage,
         '--append-system-prompt', systemPrompt,
-        '--output-format', 'json',
-        '--max-turns', '1'
+        '--output-format', 'json'
       )
     } else {
       // gemini-cli

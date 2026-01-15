@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     '/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest'
+relocations:     []
+...

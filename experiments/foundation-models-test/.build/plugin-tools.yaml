@@ -1,0 +1,81 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "FoundationModelsTest-arm64-apple-macosx26.0-debug.exe": ["<FoundationModelsTest-arm64-apple-macosx26.0-debug.exe>"]
+  "FoundationModelsTest-arm64-apple-macosx26.0-debug.module": ["<FoundationModelsTest-arm64-apple-macosx26.0-debug.module>"]
+  "PackageStructure": ["<PackageStructure>"]
+  "main": ["<FoundationModelsTest-arm64-apple-macosx26.0-debug.exe>","<FoundationModelsTest-arm64-apple-macosx26.0-debug.module>"]
+  "test": ["<FoundationModelsTest-arm64-apple-macosx26.0-debug.exe>","<FoundationModelsTest-arm64-apple-macosx26.0-debug.module>"]
+default: "main"
+nodes:
+  "/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/Sources/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+  "/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest":
+    is-mutated: true
+commands:
+  "/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest-entitlement.plist":
+    tool: write-auxiliary-file
+    inputs: ["<entitlement-plist>","<com.apple.security.get-task-allow>"]
+    outputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest-entitlement.plist"]
+    description: "Write auxiliary file /Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest-entitlement.plist"
+
+  "/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/Sources/main.swift"]
+    outputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.build/sources"]
+    description: "Write auxiliary file /Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.build/sources"
+
+  "/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.product/Objects.LinkFileList":
+    tool: write-auxiliary-file
+    inputs: ["<link-file-list>","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.build/main.swift.o"]
+    outputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.product/Objects.LinkFileList"]
+    description: "Write auxiliary file /Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.product/Objects.LinkFileList"
+
+  "/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"]
+    outputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+
+  "<FoundationModelsTest-arm64-apple-macosx26.0-debug.exe>":
+    tool: phony
+    inputs: ["<FoundationModelsTest-arm64-apple-macosx26.0-debug.exe-CodeSigning>"]
+    outputs: ["<FoundationModelsTest-arm64-apple-macosx26.0-debug.exe>"]
+
+  "<FoundationModelsTest-arm64-apple-macosx26.0-debug.module>":
+    tool: phony
+    inputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.build/main.swift.o","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/Modules/FoundationModelsTest.swiftmodule"]
+    outputs: ["<FoundationModelsTest-arm64-apple-macosx26.0-debug.module>"]
+
+  "C.FoundationModelsTest-arm64-apple-macosx26.0-debug.exe":
+    tool: shell
+    inputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.build/main.swift.o","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.product/Objects.LinkFileList"]
+    outputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest"]
+    description: "Linking ./.build/arm64-apple-macosx/debug/FoundationModelsTest"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-L","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug","-o","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest","-module-name","FoundationModelsTest","-Xlinker","-no_warn_duplicate_libraries","-emit-executable","-Xlinker","-alias","-Xlinker","_FoundationModelsTest_main","-Xlinker","_main","-Xlinker","-rpath","-Xlinker","@loader_path","@/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.product/Objects.LinkFileList","-target","arm64-apple-macosx26.0","-Xlinker","-add_ast_path","-Xlinker","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/Modules/FoundationModelsTest.swiftmodule","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g"]
+
+  "C.FoundationModelsTest-arm64-apple-macosx26.0-debug.exe-entitlements":
+    tool: shell
+    inputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest-entitlement.plist"]
+    outputs: ["<FoundationModelsTest-arm64-apple-macosx26.0-debug.exe-CodeSigning>"]
+    description: "Applying debug entitlements to ./.build/arm64-apple-macosx/debug/FoundationModelsTest"
+    args: ["codesign","--force","--sign","-","--entitlements","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest-entitlement.plist","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest"]
+
+  "C.FoundationModelsTest-arm64-apple-macosx26.0-debug.module":
+    tool: shell
+    inputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/Sources/main.swift","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.build/sources"]
+    outputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.build/main.swift.o","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/Modules/FoundationModelsTest.swiftmodule"]
+    description: "Compiling Swift Module 'FoundationModelsTest' (1 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","FoundationModelsTest","-emit-dependencies","-emit-module","-emit-module-path","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/Modules/FoundationModelsTest.swiftmodule","-output-file-map","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.build/output-file-map.json","-incremental","-c","@/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/FoundationModelsTest.build/sources","-I","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx26.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-j10","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-Xfrontend","-entry-point-function-name","-Xfrontend","FoundationModelsTest_main","-parse-as-library","-swift-version","6","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","foundation_models_test"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/Sources/","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/Package.swift","/Users/rusty/Documents/Projects/AI/Tools/ClaudeTools/memory-ts/packages/memory/experiments/foundation-models-test/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+
