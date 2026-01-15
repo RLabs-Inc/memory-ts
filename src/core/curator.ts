@@ -7,6 +7,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import type { CuratedMemory, CurationResult, CurationTrigger, ContextType } from '../types/memory.ts'
+import { logger } from '../utils/logger.ts'
 
 /**
  * Get the correct Claude CLI command path
@@ -396,13 +397,14 @@ Focus ONLY on technical, architectural, debugging, decision, workflow, and proje
       // Try to extract JSON from response (same regex as Python)
       const jsonMatch = responseJson.match(/\{[\s\S]*\}/)?.[0]
       if (!jsonMatch) {
+        logger.debug('parseCurationResponse: No JSON object found in response', 'curator')
         throw new Error('No JSON object found in response')
       }
 
       // Simple parse - match Python's approach
       const data = JSON.parse(jsonMatch)
 
-      return {
+      const result: CurationResult = {
         session_summary: data.session_summary ?? '',
         interaction_tone: data.interaction_tone,
         project_snapshot: data.project_snapshot ? {
@@ -417,7 +419,13 @@ Focus ONLY on technical, architectural, debugging, decision, workflow, and proje
         } : undefined,
         memories: this._parseMemories(data.memories ?? []),
       }
-    } catch {
+
+      // Log what we extracted in verbose mode
+      logger.debug(`Curator parsed: ${result.memories.length} memories, summary: ${result.session_summary ? 'yes' : 'no'}, snapshot: ${result.project_snapshot ? 'yes' : 'no'}`, 'curator')
+
+      return result
+    } catch (error: any) {
+      logger.debug(`parseCurationResponse error: ${error.message}`, 'curator')
       return {
         session_summary: '',
         memories: [],
@@ -550,7 +558,15 @@ This session has ended. Please curate the memories from this conversation accord
     }
 
     if (!resultText) {
+      logger.debug('Curator SDK: No result text returned from Agent SDK', 'curator')
       return { session_summary: '', memories: [] }
+    }
+
+    // Log raw response in verbose mode
+    logger.debug(`Curator SDK raw response (${resultText.length} chars):`, 'curator')
+    if (logger.isVerbose()) {
+      const preview = resultText.length > 3000 ? resultText.slice(0, 3000) + '...[truncated]' : resultText
+      console.log(preview)
     }
 
     return this.parseCurationResponse(resultText)
@@ -704,7 +720,19 @@ This session has ended. Please curate the memories from this conversation accord
     const exitCode = await proc.exited
 
     if (exitCode !== 0) {
+      logger.debug(`Curator CLI exited with code ${exitCode}`, 'curator')
+      if (stderr) {
+        logger.debug(`Curator stderr: ${stderr}`, 'curator')
+      }
       return { session_summary: '', memories: [] }
+    }
+
+    // Log raw response in verbose mode
+    logger.debug(`Curator CLI raw stdout (${stdout.length} chars):`, 'curator')
+    if (logger.isVerbose()) {
+      // Show first 2000 chars to avoid flooding console
+      const preview = stdout.length > 2000 ? stdout.slice(0, 2000) + '...[truncated]' : stdout
+      console.log(preview)
     }
 
     // Extract JSON from CLI output
@@ -718,6 +746,7 @@ This session has ended. Please curate the memories from this conversation accord
         // New format: array of events, find the one with type="result"
         resultObj = cliOutput.find((item: any) => item.type === 'result')
         if (!resultObj) {
+          logger.debug('Curator: No result object found in CLI output array', 'curator')
           return { session_summary: '', memories: [] }
         }
       } else {
@@ -727,6 +756,7 @@ This session has ended. Please curate the memories from this conversation accord
 
       // Check for error response FIRST (like Python does)
       if (resultObj.type === 'error' || resultObj.is_error === true) {
+        logger.debug(`Curator: Error response from CLI: ${JSON.stringify(resultObj).slice(0, 500)}`, 'curator')
         return { session_summary: '', memories: [] }
       }
 
@@ -735,7 +765,15 @@ This session has ended. Please curate the memories from this conversation accord
       if (typeof resultObj.result === 'string') {
         aiResponse = resultObj.result
       } else {
+        logger.debug(`Curator: result field is not a string: ${typeof resultObj.result}`, 'curator')
         return { session_summary: '', memories: [] }
+      }
+
+      // Log the AI response in verbose mode
+      logger.debug(`Curator AI response (${aiResponse.length} chars):`, 'curator')
+      if (logger.isVerbose()) {
+        const preview = aiResponse.length > 3000 ? aiResponse.slice(0, 3000) + '...[truncated]' : aiResponse
+        console.log(preview)
       }
 
       // Remove markdown code blocks if present (```json ... ```)
@@ -747,10 +785,14 @@ This session has ended. Please curate the memories from this conversation accord
       // Now find the JSON object (same regex as Python)
       const jsonMatch = aiResponse.match(/\{[\s\S]*\}/)?.[0]
       if (jsonMatch) {
+        logger.debug(`Curator: Found JSON object (${jsonMatch.length} chars), parsing...`, 'curator')
         return this.parseCurationResponse(jsonMatch)
+      } else {
+        logger.debug('Curator: No JSON object found in AI response', 'curator')
       }
-    } catch {
+    } catch (error: any) {
       // Parse error - return empty result
+      logger.debug(`Curator: Parse error: ${error.message}`, 'curator')
     }
 
     return { session_summary: '', memories: [] }

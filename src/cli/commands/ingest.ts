@@ -306,6 +306,8 @@ export async function ingest(options: IngestOptions) {
       // Accumulate all memories from this session for manager
       const sessionMemories: CuratedMemory[] = []
       let sessionSummary = ''
+      let interactionTone = ''
+      let projectSnapshot: CurationResult['project_snapshot'] = undefined
 
       const spinner = new Spinner()
 
@@ -330,13 +332,33 @@ export async function ingest(options: IngestOptions) {
             totalMemories++
           }
 
-          // Keep the most recent session summary
+          // Keep the most recent session summary, tone, and snapshot
           if (result.session_summary) {
             sessionSummary = result.session_summary
+          }
+          if (result.interaction_tone) {
+            interactionTone = result.interaction_tone
+          }
+          if (result.project_snapshot) {
+            projectSnapshot = result.project_snapshot
           }
         } catch (error: any) {
           failedSegments++
           spinner.stop(`        ${style('red', '✗')} Segment ${segment.segmentIndex + 1}/${segment.totalSegments}: ${error.message}`)
+        }
+      }
+
+      // Store session summary and project snapshot
+      if (sessionSummary) {
+        await store.storeSessionSummary(project.folderId, session.id, sessionSummary, interactionTone)
+        if (options.verbose) {
+          console.log(`        ${style('dim', `Summary stored: ${sessionSummary.slice(0, 60)}...`)}`)
+        }
+      }
+      if (projectSnapshot) {
+        await store.storeProjectSnapshot(project.folderId, session.id, projectSnapshot)
+        if (options.verbose) {
+          console.log(`        ${style('dim', `Snapshot stored: phase=${projectSnapshot.current_phase || 'none'}`)}`)
         }
       }
 
@@ -350,7 +372,8 @@ export async function ingest(options: IngestOptions) {
           const curationResult: CurationResult = {
             memories: sessionMemories,
             session_summary: sessionSummary,
-            project_snapshot: undefined,
+            interaction_tone: interactionTone,
+            project_snapshot: projectSnapshot,
           }
 
           const managerResult = await manager.manageWithSDK(
