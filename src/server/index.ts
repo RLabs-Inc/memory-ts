@@ -197,11 +197,11 @@ export async function createServer(config: ServerConfig = {}) {
           // Fire and forget - don't block the response
           setImmediate(async () => {
             try {
-              const result = await curator.curateWithCLI(
+              // Use SDK mode - more reliable than CLI which can go off-rails
+              const result = await curator.curateFromSessionFile(
                 body.claude_session_id,
                 body.trigger,
-                body.cwd,
-                body.cli_type
+                body.cwd
               )
 
               if (result.memories.length > 0) {
@@ -225,7 +225,8 @@ export async function createServer(config: ServerConfig = {}) {
                     logger.logManagementStart(result.memories.length)
                     const startTime = Date.now()
 
-                    const managementResult = await manager.manageWithCLI(
+                    // Use SDK mode - more reliable than CLI which can go off-rails
+                    const managementResult = await manager.manageWithSDK(
                       body.project_id,
                       sessionNumber,
                       result,

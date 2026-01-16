@@ -39,21 +39,23 @@ async function installClaudeHooks(options: InstallOptions) {
   console.log()
 
   const claudeDir = join(homedir(), '.claude')
+  const targetHooksDir = join(claudeDir, 'hooks')
   const settingsPath = join(claudeDir, 'settings.json')
 
-  // Find the hooks directory (relative to this CLI)
+  // Find the hooks directory (relative to this CLI - source files)
   const cliPath = import.meta.dir
   const packageRoot = join(cliPath, '..', '..', '..')
-  const hooksDir = join(packageRoot, 'hooks', 'claude')
+  const sourceHooksDir = join(packageRoot, 'hooks', 'claude')
 
   console.log(`  ${fmt.kv('Claude config', claudeDir)}`)
-  console.log(`  ${fmt.kv('Hooks source', hooksDir)}`)
+  console.log(`  ${fmt.kv('Hooks source', sourceHooksDir)}`)
+  console.log(`  ${fmt.kv('Hooks target', targetHooksDir)}`)
   console.log()
 
-  // Check if hooks directory exists
-  if (!existsSync(hooksDir)) {
+  // Check if source hooks directory exists
+  if (!existsSync(sourceHooksDir)) {
     console.log(
-      c.error(`  ${symbols.cross} Hooks directory not found at ${hooksDir}`)
+      c.error(`  ${symbols.cross} Hooks directory not found at ${sourceHooksDir}`)
     )
     console.log(c.muted(`  Make sure the memory package is properly installed`))
     process.exit(1)
@@ -63,6 +65,28 @@ async function installClaudeHooks(options: InstallOptions) {
   if (!existsSync(claudeDir)) {
     mkdirSync(claudeDir, { recursive: true })
     console.log(`  ${c.success(symbols.tick)} Created ${claudeDir}`)
+  }
+
+  // Ensure target hooks directory exists
+  if (!existsSync(targetHooksDir)) {
+    mkdirSync(targetHooksDir, { recursive: true })
+    console.log(`  ${c.success(symbols.tick)} Created ${targetHooksDir}`)
+  }
+
+  // Copy hooks to target directory (stable location, won't change with package upgrades)
+  const filesToCopy = ['session-start.ts', 'user-prompt.ts', 'curation.ts']
+  for (const file of filesToCopy) {
+    const source = join(sourceHooksDir, file)
+    const target = join(targetHooksDir, file)
+    try {
+      const content = await Bun.file(source).text()
+      await Bun.write(target, content)
+      console.log(`  ${c.success(symbols.tick)} Installed hook: ${file}`)
+    } catch (e: any) {
+      console.log(
+        c.error(`  ${symbols.cross} Failed to copy ${file}: ${e.message}`)
+      )
+    }
   }
 
   // Read existing settings or create new
@@ -83,10 +107,10 @@ async function installClaudeHooks(options: InstallOptions) {
     }
   }
 
-  // Build hooks configuration
-  const sessionStartHook = join(hooksDir, 'session-start.ts')
-  const userPromptHook = join(hooksDir, 'user-prompt.ts')
-  const curationHook = join(hooksDir, 'curation.ts')
+  // Build hooks configuration pointing to TARGET directory (stable ~/.claude/hooks/)
+  const sessionStartHook = join(targetHooksDir, 'session-start.ts')
+  const userPromptHook = join(targetHooksDir, 'user-prompt.ts')
+  const curationHook = join(targetHooksDir, 'curation.ts')
 
   const hooksConfig = {
     SessionStart: [

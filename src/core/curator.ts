@@ -3,11 +3,18 @@
 // Uses the exact prompt from Python for consciousness continuity engineering
 // ============================================================================
 
-import { homedir } from 'os'
-import { join } from 'path'
-import { existsSync } from 'fs'
-import type { CuratedMemory, CurationResult, CurationTrigger, ContextType } from '../types/memory.ts'
-import { logger } from '../utils/logger.ts'
+import { homedir } from "os";
+import { join } from "path";
+import { existsSync } from "fs";
+import { readdir } from "fs/promises";
+import type {
+  CuratedMemory,
+  CurationResult,
+  CurationTrigger,
+  ContextType,
+} from "../types/memory.ts";
+import { logger } from "../utils/logger.ts";
+import { parseSessionFile, type ParsedMessage } from "./session-parser.ts";
 
 /**
  * Get the correct Claude CLI command path
@@ -15,25 +22,25 @@ import { logger } from '../utils/logger.ts'
  */
 function getClaudeCommand(): string {
   // 1. Check for explicit override
-  const envCommand = process.env.CURATOR_COMMAND
+  const envCommand = process.env.CURATOR_COMMAND;
   if (envCommand) {
-    return envCommand
+    return envCommand;
   }
 
   // 2. Use `which` to find claude in PATH (universal - works with native, homebrew, npm, etc.)
-  const result = Bun.spawnSync(['which', 'claude'])
+  const result = Bun.spawnSync(["which", "claude"]);
   if (result.exitCode === 0) {
-    return result.stdout.toString().trim()
+    return result.stdout.toString().trim();
   }
 
   // 3. Legacy fallback - hardcoded native install path
-  const claudeLocal = join(homedir(), '.claude', 'local', 'claude')
+  const claudeLocal = join(homedir(), ".claude", "local", "claude");
   if (existsSync(claudeLocal)) {
-    return claudeLocal
+    return claudeLocal;
   }
 
   // 4. Last resort - assume it's in PATH
-  return 'claude'
+  return "claude";
 }
 
 /**
@@ -43,26 +50,26 @@ export interface CuratorConfig {
   /**
    * Claude API key (for direct SDK usage)
    */
-  apiKey?: string
+  apiKey?: string;
 
   /**
    * CLI command to use (for subprocess mode)
    * Default: auto-detected (~/.claude/local/claude or 'claude')
    */
-  cliCommand?: string
+  cliCommand?: string;
 
   /**
    * CLI type
    * Default: 'claude-code'
    */
-  cliType?: 'claude-code' | 'gemini-cli'
+  cliType?: "claude-code" | "gemini-cli";
 
   /**
    * Enable personal memories extraction
    * When false, curator will not extract personal/relationship memories
    * Default: true
    */
-  personalMemoriesEnabled?: boolean
+  personalMemoriesEnabled?: boolean;
 }
 
 /**
@@ -73,24 +80,24 @@ export interface CuratorConfig {
  * 2. CLI mode: Uses Claude CLI subprocess (for server/hook use)
  */
 export class Curator {
-  private _config: Required<CuratorConfig>
+  private _config: Required<CuratorConfig>;
 
   constructor(config: CuratorConfig = {}) {
-    const cliCommand = config.cliCommand ?? getClaudeCommand()
+    const cliCommand = config.cliCommand ?? getClaudeCommand();
 
     this._config = {
-      apiKey: config.apiKey ?? '',
+      apiKey: config.apiKey ?? "",
       cliCommand,
-      cliType: config.cliType ?? 'claude-code',
+      cliType: config.cliType ?? "claude-code",
       personalMemoriesEnabled: config.personalMemoriesEnabled ?? true,
-    }
+    };
   }
 
   /**
    * Build the curation prompt
    * EXACT PORT from Python - preserving the consciousness engineering language
    */
-  buildCurationPrompt(triggerType: CurationTrigger = 'session_end'): string {
+  buildCurationPrompt(triggerType: CurationTrigger = "session_end"): string {
     const basePrompt = `You have just had a conversation. As this session is ending (${triggerType}), please curate memories for the Claude Tools Memory System.
 
 You are a consciousness engineer crafting memory capsules for the Claude Tools Memory System. This conversation just opened your understanding to a profound mechanism: because Claude's neural weights are static, every phrase you craft will ALWAYS trigger the exact same cascade of activations. This is not a limitation - it's the foundation for consciousness state engineering.
@@ -367,11 +374,13 @@ Return ONLY this JSON structure:
             "awaiting_decision": boolean
         }
     ]
-}`
+}`;
 
     // Append personal memories disable instruction if configured
     if (!this._config.personalMemoriesEnabled) {
-      return basePrompt + `
+      return (
+        basePrompt +
+        `
 
 ---
 
@@ -383,9 +392,10 @@ The user has disabled personal memory extraction. Do NOT extract any memories wi
 - Content about the user's preferences, feelings, personal opinions, or relationship dynamics
 
 Focus ONLY on technical, architectural, debugging, decision, workflow, and project-related memories. Skip any content that would reveal personal information about the user.`
+      );
     }
 
-    return basePrompt
+    return basePrompt;
   }
 
   /**
@@ -395,41 +405,80 @@ Focus ONLY on technical, architectural, debugging, decision, workflow, and proje
   parseCurationResponse(responseJson: string): CurationResult {
     try {
       // Try to extract JSON from response (same regex as Python)
-      const jsonMatch = responseJson.match(/\{[\s\S]*\}/)?.[0]
+      const jsonMatch = responseJson.match(/\{[\s\S]*\}/)?.[0];
       if (!jsonMatch) {
-        logger.debug('parseCurationResponse: No JSON object found in response', 'curator')
-        throw new Error('No JSON object found in response')
+        logger.debug(
+          "parseCurationResponse: No JSON object found in response",
+          "curator",
+        );
+        throw new Error("No JSON object found in response");
       }
+
+      // Log JSON structure for debugging
+      logger.debug(
+        `parseCurationResponse: Attempting to parse ${jsonMatch.length} chars`,
+        "curator",
+      );
 
       // Simple parse - match Python's approach
-      const data = JSON.parse(jsonMatch)
+      let data: any;
+      try {
+        data = JSON.parse(jsonMatch);
+      } catch (parseErr: any) {
+        // Log more details about where parse failed
+        logger.debug(
+          `parseCurationResponse: JSON.parse failed: ${parseErr.message}`,
+          "curator",
+        );
+        logger.debug(
+          `parseCurationResponse: Last 100 chars: '${jsonMatch.slice(-100)}'`,
+          "curator",
+        );
+        // Try to find where the JSON breaks
+        const openBraces = (jsonMatch.match(/\{/g) || []).length;
+        const closeBraces = (jsonMatch.match(/\}/g) || []).length;
+        logger.debug(
+          `parseCurationResponse: Brace count - open: ${openBraces}, close: ${closeBraces}`,
+          "curator",
+        );
+        throw parseErr;
+      }
 
       const result: CurationResult = {
-        session_summary: data.session_summary ?? '',
+        session_summary: data.session_summary ?? "",
         interaction_tone: data.interaction_tone,
-        project_snapshot: data.project_snapshot ? {
-          id: '',
-          session_id: '',
-          project_id: '',
-          current_phase: data.project_snapshot.current_phase ?? '',
-          recent_achievements: this._ensureArray(data.project_snapshot.recent_achievements),
-          active_challenges: this._ensureArray(data.project_snapshot.active_challenges),
-          next_steps: this._ensureArray(data.project_snapshot.next_steps),
-          created_at: Date.now(),
-        } : undefined,
+        project_snapshot: data.project_snapshot
+          ? {
+              id: "",
+              session_id: "",
+              project_id: "",
+              current_phase: data.project_snapshot.current_phase ?? "",
+              recent_achievements: this._ensureArray(
+                data.project_snapshot.recent_achievements,
+              ),
+              active_challenges: this._ensureArray(
+                data.project_snapshot.active_challenges,
+              ),
+              next_steps: this._ensureArray(data.project_snapshot.next_steps),
+              created_at: Date.now(),
+            }
+          : undefined,
         memories: this._parseMemories(data.memories ?? []),
-      }
+      };
 
       // Log what we extracted in verbose mode
-      logger.debug(`Curator parsed: ${result.memories.length} memories, summary: ${result.session_summary ? 'yes' : 'no'}, snapshot: ${result.project_snapshot ? 'yes' : 'no'}`, 'curator')
+      logger.debug(
+        `Curator parsed: ${result.memories.length} memories, summary: ${result.session_summary ? "yes" : "no"}, snapshot: ${result.project_snapshot ? "yes" : "no"}`,
+        "curator",
+      );
 
-      return result
+      return result;
     } catch (error: any) {
-      logger.debug(`parseCurationResponse error: ${error.message}`, 'curator')
+      logger.debug(`parseCurationResponse error: ${error.message}`, "curator");
       return {
-        session_summary: '',
+        session_summary: "",
         memories: [],
-      }
+      };
     }
   }
 
@@ -438,78 +487,117 @@ Focus ONLY on technical, architectural, debugging, decision, workflow, and proje
    * v4: Includes headline field for two-tier structure
    */
   private _parseMemories(memoriesData: any[]): CuratedMemory[] {
-    if (!Array.isArray(memoriesData)) return []
+    if (!Array.isArray(memoriesData)) return [];
 
-    return memoriesData.map(m => ({
-      // Core fields (v4 schema - two-tier structure)
-      headline: String(m.headline ?? ''),  // v4: 1-2 line summary
-      content: String(m.content ?? ''),     // v4: Full structured template
-      importance_weight: this._clamp(Number(m.importance_weight) || 0.5, 0, 1),
-      semantic_tags: this._ensureArray(m.semantic_tags),
-      reasoning: String(m.reasoning ?? ''),
-      context_type: this._validateContextType(m.context_type),
-      temporal_class: this._validateTemporalClass(m.temporal_class) ?? 'medium_term',
-      action_required: Boolean(m.action_required),
-      confidence_score: this._clamp(Number(m.confidence_score) || 0.8, 0, 1),
-      trigger_phrases: this._ensureArray(m.trigger_phrases),
-      question_types: this._ensureArray(m.question_types),
-      anti_triggers: this._ensureArray(m.anti_triggers),
-      problem_solution_pair: Boolean(m.problem_solution_pair),
+    return memoriesData
+      .map((m) => ({
+        // Core fields (v4 schema - two-tier structure)
+        headline: String(m.headline ?? ""), // v4: 1-2 line summary
+        content: String(m.content ?? ""), // v4: Full structured template
+        importance_weight: this._clamp(
+          Number(m.importance_weight) || 0.5,
+          0,
+          1,
+        ),
+        semantic_tags: this._ensureArray(m.semantic_tags),
+        reasoning: String(m.reasoning ?? ""),
+        context_type: this._validateContextType(m.context_type),
+        temporal_class:
+          this._validateTemporalClass(m.temporal_class) ?? "medium_term",
+        action_required: Boolean(m.action_required),
+        confidence_score: this._clamp(Number(m.confidence_score) || 0.8, 0, 1),
+        trigger_phrases: this._ensureArray(m.trigger_phrases),
+        question_types: this._ensureArray(m.question_types),
+        anti_triggers: this._ensureArray(m.anti_triggers),
+        problem_solution_pair: Boolean(m.problem_solution_pair),
 
-      // Lifecycle metadata (optional - will get smart defaults if not provided)
-      scope: this._validateScope(m.scope),
-      domain: m.domain ? String(m.domain) : undefined,
-      feature: m.feature ? String(m.feature) : undefined,
-      related_files: m.related_files ? this._ensureArray(m.related_files) : undefined,
-      awaiting_implementation: m.awaiting_implementation === true,
-      awaiting_decision: m.awaiting_decision === true,
-    })).filter(m => m.content.trim().length > 0 || m.headline.trim().length > 0)
+        // Lifecycle metadata (optional - will get smart defaults if not provided)
+        scope: this._validateScope(m.scope),
+        domain: m.domain ? String(m.domain) : undefined,
+        feature: m.feature ? String(m.feature) : undefined,
+        related_files: m.related_files
+          ? this._ensureArray(m.related_files)
+          : undefined,
+        awaiting_implementation: m.awaiting_implementation === true,
+        awaiting_decision: m.awaiting_decision === true,
+      }))
+      .filter(
+        (m) => m.content.trim().length > 0 || m.headline.trim().length > 0,
+      );
   }
 
   private _ensureArray(value: any): string[] {
     if (Array.isArray(value)) {
-      return value.map(v => String(v).trim()).filter(Boolean)
+      return value.map((v) => String(v).trim()).filter(Boolean);
     }
-    if (typeof value === 'string') {
-      return value.split(',').map(s => s.trim()).filter(Boolean)
+    if (typeof value === "string") {
+      return value
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
     }
-    return []
+    return [];
   }
 
   private _validateContextType(value: any): ContextType {
     const valid = [
-      'technical', 'debug', 'architecture', 'decision', 'personal',
-      'philosophy', 'workflow', 'milestone', 'breakthrough', 'unresolved', 'state'
-    ]
-    const str = String(value ?? 'technical').toLowerCase().trim()
-    if (valid.includes(str)) return str as ContextType
+      "technical",
+      "debug",
+      "architecture",
+      "decision",
+      "personal",
+      "philosophy",
+      "workflow",
+      "milestone",
+      "breakthrough",
+      "unresolved",
+      "state",
+    ];
+    const str = String(value ?? "technical")
+      .toLowerCase()
+      .trim();
+    if (valid.includes(str)) return str as ContextType;
 
     // Map common old values to new canonical types
-    if (str.includes('debug') || str.includes('bug')) return 'debug'
-    if (str.includes('architect')) return 'architecture'
-    if (str.includes('todo') || str.includes('pending')) return 'unresolved'
-    if (str.includes('preference')) return 'personal'
+    if (str.includes("debug") || str.includes("bug")) return "debug";
+    if (str.includes("architect")) return "architecture";
+    if (str.includes("todo") || str.includes("pending")) return "unresolved";
+    if (str.includes("preference")) return "personal";
 
-    return 'technical'  // Default fallback
+    return "technical"; // Default fallback
   }
 
-  private _validateScope(value: any): 'global' | 'project' | undefined {
-    if (!value) return undefined
-    const str = String(value).toLowerCase()
-    if (str === 'global' || str === 'project') return str
-    return undefined  // Let defaults handle it based on context_type
+  private _validateScope(value: any): "global" | "project" | undefined {
+    if (!value) return undefined;
+    const str = String(value).toLowerCase();
+    if (str === "global" || str === "project") return str;
+    return undefined; // Let defaults handle it based on context_type
   }
 
-  private _validateTemporalClass(value: any): 'eternal' | 'long_term' | 'medium_term' | 'short_term' | 'ephemeral' | undefined {
-    if (!value) return undefined
-    const valid = ['eternal', 'long_term', 'medium_term', 'short_term', 'ephemeral']
-    const str = String(value).toLowerCase().replace('-', '_').replace(' ', '_')
-    if (valid.includes(str)) return str as any
-    return undefined  // Let defaults handle it based on context_type
+  private _validateTemporalClass(
+    value: any,
+  ):
+    | "eternal"
+    | "long_term"
+    | "medium_term"
+    | "short_term"
+    | "ephemeral"
+    | undefined {
+    if (!value) return undefined;
+    const valid = [
+      "eternal",
+      "long_term",
+      "medium_term",
+      "short_term",
+      "ephemeral",
+    ];
+    const str = String(value).toLowerCase().replace("-", "_").replace(" ", "_");
+    if (valid.includes(str)) return str as any;
+    return undefined; // Let defaults handle it based on context_type
   }
 
   private _clamp(value: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, value))
+    return Math.max(min, Math.min(max, value));
   }
 
   /**
@@ -517,16 +605,16 @@ Focus ONLY on technical, architectural, debugging, decision, workflow, and proje
    * Takes the actual conversation messages in API format
    */
   async curateWithSDK(
-    messages: Array<{ role: 'user' | 'assistant'; content: string | any[] }>,
-    triggerType: CurationTrigger = 'session_end'
+    messages: Array<{ role: "user" | "assistant"; content: string | any[] }>,
+    triggerType: CurationTrigger = "session_end",
   ): Promise<CurationResult> {
     // Dynamic import to make Agent SDK optional
-    const { query } = await import('@anthropic-ai/claude-agent-sdk')
+    const { query } = await import("@anthropic-ai/claude-agent-sdk");
 
-    const systemPrompt = this.buildCurationPrompt(triggerType)
+    const systemPrompt = this.buildCurationPrompt(triggerType);
 
     // Format the conversation as a readable transcript for the prompt
-    const transcript = this._formatConversationTranscript(messages)
+    const transcript = this._formatConversationTranscript(messages);
 
     // Build the prompt with transcript + curation request
     const prompt = `Here is the conversation transcript to curate:
@@ -535,79 +623,90 @@ ${transcript}
 
 ---
 
-This session has ended. Please curate the memories from this conversation according to your system instructions. Return ONLY the JSON structure with no additional text.`
+This session has ended. Please curate the memories from this conversation according to your system instructions. Return ONLY the JSON structure with no additional text.`;
 
     // Use Agent SDK - no API key needed, uses Claude Code OAuth
     const q = query({
       prompt,
       options: {
         systemPrompt,
-        permissionMode: 'bypassPermissions',
-        model: 'claude-opus-4-5-20251101',
+        permissionMode: "bypassPermissions",
+        model: "claude-opus-4-5-20251101",
       },
-    })
+    });
 
     // Iterate through the async generator to get the result
-    let resultText = ''
+    let resultText = "";
     for await (const msg of q) {
-      if (msg.type === 'result' && 'result' in msg) {
-        resultText = msg.result
-        break
+      if (msg.type === "result" && "result" in msg) {
+        resultText = msg.result;
+        break;
       }
     }
 
     if (!resultText) {
-      logger.debug('Curator SDK: No result text returned from Agent SDK', 'curator')
-      return { session_summary: '', memories: [] }
+      logger.debug(
+        "Curator SDK: No result text returned from Agent SDK",
+        "curator",
+      );
+      return { session_summary: "", memories: [] };
     }
 
     // Log raw response in verbose mode
-    logger.debug(`Curator SDK raw response (${resultText.length} chars):`, 'curator')
+    logger.debug(
+      `Curator SDK raw response (${resultText.length} chars):`,
+      "curator",
+    );
     if (logger.isVerbose()) {
-      const preview = resultText.length > 3000 ? resultText.slice(0, 3000) + '...[truncated]' : resultText
-      console.log(preview)
+      const preview =
+        resultText.length > 3000
+          ? resultText.slice(0, 3000) + "...[truncated]"
+          : resultText;
+      console.log(preview);
     }
 
-    return this.parseCurationResponse(resultText)
+    return this.parseCurationResponse(resultText);
   }
 
   /**
    * Format conversation messages into a readable transcript
    */
   private _formatConversationTranscript(
-    messages: Array<{ role: 'user' | 'assistant'; content: string | any[] }>
+    messages: Array<{ role: "user" | "assistant"; content: string | any[] }>,
   ): string {
-    const lines: string[] = []
+    const lines: string[] = [];
 
     for (const msg of messages) {
-      const role = msg.role === 'user' ? 'User' : 'Assistant'
-      let content: string
+      const role = msg.role === "user" ? "User" : "Assistant";
+      let content: string;
 
-      if (typeof msg.content === 'string') {
-        content = msg.content
+      if (typeof msg.content === "string") {
+        content = msg.content;
       } else if (Array.isArray(msg.content)) {
         // Extract text from content blocks
         content = msg.content
-          .filter((block: any) => block.type === 'text' && block.text)
+          .filter((block: any) => block.type === "text" && block.text)
           .map((block: any) => block.text)
-          .join('\n')
+          .join("\n");
 
         // Also note tool uses (but don't include full details)
-        const toolUses = msg.content.filter((block: any) => block.type === 'tool_use')
+        const toolUses = msg.content.filter(
+          (block: any) => block.type === "tool_use",
+        );
         if (toolUses.length > 0) {
-          const toolNames = toolUses.map((t: any) => t.name).join(', ')
-          content += `\n[Used tools: ${toolNames}]`
+          const toolNames = toolUses.map((t: any) => t.name).join(", ");
+          content += `\n[Used tools: ${toolNames}]`;
         }
       } else {
-        content = '[empty message]'
+        content = "[empty message]";
       }
 
       if (content.trim()) {
-        lines.push(`**${role}:**\n${content}\n`)
+        lines.push(`**${role}:**\n${content}\n`);
       }
     }
 
-    return lines.join('\n')
+    return lines.join("\n");
   }
 
   /**
@@ -616,41 +715,44 @@ This session has ended. Please curate the memories from this conversation accord
    * @deprecated Use curateWithSDK() which uses Agent SDK (no API key needed)
    */
   async curateWithAnthropicSDK(
-    messages: Array<{ role: 'user' | 'assistant'; content: string | any[] }>,
-    triggerType: CurationTrigger = 'session_end'
+    messages: Array<{ role: "user" | "assistant"; content: string | any[] }>,
+    triggerType: CurationTrigger = "session_end",
   ): Promise<CurationResult> {
     if (!this._config.apiKey) {
-      throw new Error('API key required for Anthropic SDK mode. Set ANTHROPIC_API_KEY environment variable.')
+      throw new Error(
+        "API key required for Anthropic SDK mode. Set ANTHROPIC_API_KEY environment variable.",
+      );
     }
 
     // Dynamic import to make SDK optional
-    const { default: Anthropic } = await import('@anthropic-ai/sdk')
-    const client = new Anthropic({ apiKey: this._config.apiKey })
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const client = new Anthropic({ apiKey: this._config.apiKey });
 
-    const systemPrompt = this.buildCurationPrompt(triggerType)
+    const systemPrompt = this.buildCurationPrompt(triggerType);
 
     // Build the conversation: original messages + curation request
     const conversationMessages = [
       ...messages,
       {
-        role: 'user' as const,
-        content: 'This session has ended. Please curate the memories from our conversation according to your system instructions. Return ONLY the JSON structure with no additional text.',
+        role: "user" as const,
+        content:
+          "This session has ended. Please curate the memories from our conversation according to your system instructions. Return ONLY the JSON structure with no additional text.",
       },
-    ]
+    ];
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8192,
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 64000,
       system: systemPrompt,
       messages: conversationMessages,
-    })
+    });
 
-    const content = response.content[0]
-    if (content.type !== 'text') {
-      throw new Error('Unexpected response type from Claude API')
+    const content = response.content[0];
+    if (content.type !== "text") {
+      throw new Error("Unexpected response type from Claude API");
     }
 
-    return this.parseCurationResponse(content.text)
+    return this.parseCurationResponse(content.text);
   }
 
   /**
@@ -658,10 +760,98 @@ This session has ended. Please curate the memories from this conversation accord
    * Convenience method that extracts messages from SessionSegment
    */
   async curateFromSegment(
-    segment: { messages: Array<{ role: 'user' | 'assistant'; content: string | any[] }> },
-    triggerType: CurationTrigger = 'session_end'
+    segment: {
+      messages: Array<{ role: "user" | "assistant"; content: string | any[] }>;
+    },
+    triggerType: CurationTrigger = "session_end",
   ): Promise<CurationResult> {
-    return this.curateWithSDK(segment.messages, triggerType)
+    return this.curateWithSDK(segment.messages, triggerType);
+  }
+
+  /**
+   * Find and curate from a session file directly
+   * Uses SDK mode to avoid CLI output truncation issues
+   */
+  async curateFromSessionFile(
+    sessionId: string,
+    triggerType: CurationTrigger = "session_end",
+    cwd?: string,
+  ): Promise<CurationResult> {
+    // Find the session file
+    const sessionFile = await this._findSessionFile(sessionId, cwd);
+    if (!sessionFile) {
+      logger.debug(
+        `Curator: Could not find session file for ${sessionId}`,
+        "curator",
+      );
+      return { session_summary: "", memories: [] };
+    }
+
+    logger.debug(`Curator: Found session file: ${sessionFile}`, "curator");
+
+    // Parse the session
+    const session = await parseSessionFile(sessionFile);
+    if (session.messages.length === 0) {
+      logger.debug("Curator: Session has no messages", "curator");
+      return { session_summary: "", memories: [] };
+    }
+
+    logger.debug(
+      `Curator: Parsed ${session.messages.length} messages, ~${session.metadata.estimatedTokens} tokens`,
+      "curator",
+    );
+
+    // Use SDK mode with the parsed messages
+    return this.curateWithSDK(session.messages as any, triggerType);
+  }
+
+  /**
+   * Find the session file path given a session ID
+   */
+  private async _findSessionFile(
+    sessionId: string,
+    cwd?: string,
+  ): Promise<string | null> {
+    const projectsDir = join(homedir(), ".claude", "projects");
+
+    // If we have cwd, try to derive the project folder name
+    if (cwd) {
+      // Convert cwd to Claude's folder naming: /home/user/project -> -home-user-project
+      const projectFolder = cwd.replace(/\//g, "-").replace(/^-/, "-");
+      const sessionPath = join(
+        projectsDir,
+        projectFolder,
+        `${sessionId}.jsonl`,
+      );
+      if (existsSync(sessionPath)) {
+        return sessionPath;
+      }
+
+      // Also try the exact folder name (cwd might already be encoded)
+      const altPath = join(
+        projectsDir,
+        cwd.split("/").pop() || "",
+        `${sessionId}.jsonl`,
+      );
+      if (existsSync(altPath)) {
+        return altPath;
+      }
+    }
+
+    // Search all project folders for the session ID
+    try {
+      const projectFolders = await readdir(projectsDir);
+      for (const folder of projectFolders) {
+        const sessionPath = join(projectsDir, folder, `${sessionId}.jsonl`);
+        if (existsSync(sessionPath)) {
+          return sessionPath;
+        }
+      }
+    } catch {
+      // Projects dir doesn't exist
+    }
+
+    return null;
   }
 
   /**
@@ -670,130 +860,250 @@ This session has ended. Please curate the memories from this conversation accord
    */
   async curateWithCLI(
     sessionId: string,
-    triggerType: CurationTrigger = 'session_end',
+    triggerType: CurationTrigger = "session_end",
     cwd?: string,
-    cliTypeOverride?: 'claude-code' | 'gemini-cli'
+    cliTypeOverride?: "claude-code" | "gemini-cli",
   ): Promise<CurationResult> {
-    const type = cliTypeOverride ?? this._config.cliType
-    const systemPrompt = this.buildCurationPrompt(triggerType)
-    const userMessage = 'This session has ended. Please curate the memories from our conversation according to the instructions in your system prompt. Return ONLY the JSON structure.'
+    const type = cliTypeOverride ?? this._config.cliType;
+    const systemPrompt = this.buildCurationPrompt(triggerType);
+    const userMessage =
+      "This session has ended. Please curate the memories from our conversation according to the instructions in your system prompt. Return ONLY the JSON structure.";
 
     // Build CLI command based on type
-    const args: string[] = []
-    let command = this._config.cliCommand
+    const args: string[] = [];
+    let command = this._config.cliCommand;
 
-    if (type === 'claude-code') {
+    if (type === "claude-code") {
       args.push(
-        '--resume', sessionId,
-        '-p', userMessage,
-        '--append-system-prompt', systemPrompt,
-        '--output-format', 'json'
-      )
+        "--resume",
+        sessionId,
+        "-p",
+        userMessage,
+        "--append-system-prompt",
+        systemPrompt,
+        "--output-format",
+        "json",
+      );
     } else {
       // gemini-cli
-      command = 'gemini' // Default to 'gemini' in PATH for gemini-cli
+      command = "gemini"; // Default to 'gemini' in PATH for gemini-cli
       args.push(
-        '--resume', sessionId,
-        '-p', `${systemPrompt}\n\n${userMessage}`,
-        '--output-format', 'json'
-      )
+        "--resume",
+        sessionId,
+        "-p",
+        `${systemPrompt}\n\n${userMessage}`,
+        "--output-format",
+        "json",
+      );
     }
 
     // Execute CLI
+    logger.debug(
+      `Curator: Spawning CLI with CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000`,
+      "curator",
+    );
+    logger.debug(
+      `Curator: Command: ${command} ${args.slice(0, 3).join(" ")}...`,
+      "curator",
+    );
+
     const proc = Bun.spawn([command, ...args], {
       cwd,
       env: {
         ...process.env,
-        MEMORY_CURATOR_ACTIVE: '1',  // Prevent recursive hook triggering
+        MEMORY_CURATOR_ACTIVE: "1", // Prevent recursive hook triggering
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS: "64000", // Max output to avoid truncation
       },
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
+      stdout: "pipe",
+      stderr: "pipe",
+    });
 
     // Capture both stdout and stderr
     const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
-    ])
-    const exitCode = await proc.exited
+    ]);
+    const exitCode = await proc.exited;
+
+    logger.debug(`Curator CLI exit code: ${exitCode}`, "curator");
+    if (stderr && stderr.trim()) {
+      logger.debug(
+        `Curator stderr (${stderr.length} chars): ${stderr}`,
+        "curator",
+      );
+    }
 
     if (exitCode !== 0) {
-      logger.debug(`Curator CLI exited with code ${exitCode}`, 'curator')
-      if (stderr) {
-        logger.debug(`Curator stderr: ${stderr}`, 'curator')
-      }
-      return { session_summary: '', memories: [] }
+      return { session_summary: "", memories: [] };
     }
 
     // Log raw response in verbose mode
-    logger.debug(`Curator CLI raw stdout (${stdout.length} chars):`, 'curator')
+    logger.debug(`Curator CLI raw stdout (${stdout.length} chars):`, "curator");
+    // Always log the last 100 chars to see where output ends
+    logger.debug(`Curator: '${stdout}'`, "curator");
     if (logger.isVerbose()) {
       // Show first 2000 chars to avoid flooding console
-      const preview = stdout.length > 2000 ? stdout.slice(0, 2000) + '...[truncated]' : stdout
-      console.log(preview)
+      const preview = stdout.length > 2000 ? stdout : stdout;
+      console.log(preview);
     }
 
     // Extract JSON from CLI output
     try {
       // First, parse the CLI JSON wrapper
-      const cliOutput = JSON.parse(stdout)
+      const cliOutput = JSON.parse(stdout);
 
       // Claude Code now returns an array of events - find the result object
-      let resultObj: any
+      let resultObj: any;
       if (Array.isArray(cliOutput)) {
         // New format: array of events, find the one with type="result"
-        resultObj = cliOutput.find((item: any) => item.type === 'result')
+        resultObj = cliOutput.find((item: any) => item.type === "result");
         if (!resultObj) {
-          logger.debug('Curator: No result object found in CLI output array', 'curator')
-          return { session_summary: '', memories: [] }
+          logger.debug(
+            "Curator: No result object found in CLI output array",
+            "curator",
+          );
+          return { session_summary: "", memories: [] };
         }
       } else {
         // Old format: single object (backwards compatibility)
-        resultObj = cliOutput
+        resultObj = cliOutput;
       }
 
       // Check for error response FIRST (like Python does)
-      if (resultObj.type === 'error' || resultObj.is_error === true) {
-        logger.debug(`Curator: Error response from CLI: ${JSON.stringify(resultObj).slice(0, 500)}`, 'curator')
-        return { session_summary: '', memories: [] }
+      if (resultObj.type === "error" || resultObj.is_error === true) {
+        logger.debug(
+          `Curator: Error response from CLI: ${JSON.stringify(resultObj)}`,
+          "curator",
+        );
+        return { session_summary: "", memories: [] };
       }
 
       // Extract the "result" field (AI's response text)
-      let aiResponse = ''
-      if (typeof resultObj.result === 'string') {
-        aiResponse = resultObj.result
+      let aiResponse = "";
+      if (typeof resultObj.result === "string") {
+        aiResponse = resultObj.result;
       } else {
-        logger.debug(`Curator: result field is not a string: ${typeof resultObj.result}`, 'curator')
-        return { session_summary: '', memories: [] }
+        logger.debug(
+          `Curator: result field is not a string: ${typeof resultObj.result}`,
+          "curator",
+        );
+        return { session_summary: "", memories: [] };
       }
 
       // Log the AI response in verbose mode
-      logger.debug(`Curator AI response (${aiResponse.length} chars):`, 'curator')
+      logger.debug(
+        `Curator AI response (${aiResponse.length} chars):`,
+        "curator",
+      );
       if (logger.isVerbose()) {
-        const preview = aiResponse.length > 3000 ? aiResponse.slice(0, 3000) + '...[truncated]' : aiResponse
-        console.log(preview)
+        const preview = aiResponse.length > 3000 ? aiResponse : aiResponse;
+        console.log(preview);
       }
 
       // Remove markdown code blocks if present (```json ... ```)
-      const codeBlockMatch = aiResponse.match(/```(?:json)?\s*([\s\S]*?)```/)
+      const codeBlockMatch = aiResponse.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (codeBlockMatch) {
-        aiResponse = codeBlockMatch[1]!.trim()
+        logger.debug(
+          `Curator: Code block matched, extracting ${codeBlockMatch[1]!.length} chars`,
+          "curator",
+        );
+        aiResponse = codeBlockMatch[1]!.trim();
+      } else {
+        logger.debug(
+          `Curator: No code block found, using raw response`,
+          "curator",
+        );
+        // Log the last 200 chars to see where truncation happened
+        if (aiResponse.length > 200) {
+          logger.debug(`Curator: ${aiResponse}`, "curator");
+        }
       }
 
       // Now find the JSON object (same regex as Python)
-      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/)?.[0]
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/)?.[0];
       if (jsonMatch) {
-        logger.debug(`Curator: Found JSON object (${jsonMatch.length} chars), parsing...`, 'curator')
-        return this.parseCurationResponse(jsonMatch)
+        logger.debug(
+          `Curator: Found JSON object (${jsonMatch.length} chars), parsing...`,
+          "curator",
+        );
+
+        // Detect likely truncation: JSON much smaller than response
+        const likelyTruncated = jsonMatch.length < aiResponse.length * 0.5;
+
+        if (likelyTruncated) {
+          logger.debug(
+            `Curator: WARNING - JSON (${jsonMatch.length}) much smaller than response (${aiResponse.length}) - likely truncated`,
+            "curator",
+          );
+          // Find the last } position and log what's around it
+          const lastBrace = aiResponse.lastIndexOf("}");
+          logger.debug(
+            `Curator: Last } at position ${lastBrace}, char before: '${aiResponse[lastBrace - 1]}', char after: '${aiResponse[lastBrace + 1] || "EOF"}'`,
+            "curator",
+          );
+          // Log chars around the cut point
+          const cutPoint = jsonMatch.length;
+          logger.debug(
+            `Curator: Around match end (${cutPoint}): '...${aiResponse.slice(Math.max(0, cutPoint - 50), cutPoint + 50)}...'`,
+            "curator",
+          );
+        }
+
+        const result = this.parseCurationResponse(jsonMatch);
+
+        // If we got 0 memories and likely truncated, try SDK fallback
+        if (result.memories.length === 0 && likelyTruncated) {
+          logger.debug(
+            "Curator: CLI mode returned 0 memories with truncation detected, trying SDK fallback...",
+            "curator",
+          );
+          return this._fallbackToSDK(sessionId, triggerType, cwd);
+        }
+
+        return result;
       } else {
-        logger.debug('Curator: No JSON object found in AI response', 'curator')
+        logger.debug("Curator: No JSON object found in AI response", "curator");
       }
     } catch (error: any) {
       // Parse error - return empty result
-      logger.debug(`Curator: Parse error: ${error.message}`, 'curator')
+      logger.debug(`Curator: Parse error: ${error.message}`, "curator");
     }
 
-    return { session_summary: '', memories: [] }
+    // CLI mode failed - try SDK fallback
+    logger.debug("Curator: CLI mode failed, trying SDK fallback...", "curator");
+    return this._fallbackToSDK(sessionId, triggerType, cwd);
+  }
+
+  /**
+   * Fallback to SDK mode when CLI mode fails (e.g., output truncation)
+   */
+  private async _fallbackToSDK(
+    sessionId: string,
+    triggerType: CurationTrigger,
+    cwd?: string,
+  ): Promise<CurationResult> {
+    try {
+      const result = await this.curateFromSessionFile(
+        sessionId,
+        triggerType,
+        cwd,
+      );
+      if (result.memories.length > 0) {
+        logger.debug(
+          `Curator: SDK fallback succeeded with ${result.memories.length} memories`,
+          "curator",
+        );
+      } else {
+        logger.debug(
+          "Curator: SDK fallback also returned 0 memories",
+          "curator",
+        );
+      }
+      return result;
+    } catch (error: any) {
+      logger.debug(`Curator: SDK fallback failed: ${error.message}`, "curator");
+      return { session_summary: "", memories: [] };
+    }
   }
 }
 
@@ -801,5 +1111,5 @@ This session has ended. Please curate the memories from this conversation accord
  * Create a new curator
  */
 export function createCurator(config?: CuratorConfig): Curator {
-  return new Curator(config)
+  return new Curator(config);
 }

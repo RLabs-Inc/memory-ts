@@ -38,8 +38,12 @@ async function main() {
 
     const sessionId = input.session_id || 'unknown'
     const cwd = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd()
-    const trigger = input.trigger || 'pre_compact'
     const hookEvent = input.hook_event_name || 'PreCompact'
+
+    // Determine trigger type from hook event name (more reliable than input.trigger)
+    // PreCompact = context is being compacted, session still active
+    // SessionEnd/Stop = session is ending
+    const trigger = hookEvent === 'PreCompact' ? 'pre_compact' : 'session_end'
 
     const projectId = getProjectId(cwd)
 
@@ -54,7 +58,7 @@ async function main() {
         session_id: sessionId,
         project_id: projectId,
         claude_session_id: sessionId,
-        trigger: trigger === 'pre_compact' || trigger === 'manual' ? 'pre_compact' : 'session_end',
+        trigger,
         cwd,
       }),
       signal: AbortSignal.timeout(5000),
