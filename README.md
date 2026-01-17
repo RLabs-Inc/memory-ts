@@ -383,6 +383,13 @@ This isn't just about remembering facts. It's about preserving:
 
 ## Changelog
 
+### v0.4.11
+- **Feature**: Curator v2 with session resumption + structured outputs (Zod validation)
+- **Improvement**: Curation now uses `resume` option to get full session context including tool uses
+- **Improvement**: JSON schema validation via Zod eliminates fragile regex parsing
+- **Improvement**: Uses Opus 4.5 for curation
+- **Tech**: New `curateWithSessionResume()` method with automatic fallback to transcript parsing
+
 ### v0.4.10
 - **Fix**: Server now actually uses SDK curation (v0.4.9 published before the change was in server code)
 

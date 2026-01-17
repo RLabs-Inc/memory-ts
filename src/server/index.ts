@@ -197,12 +197,22 @@ export async function createServer(config: ServerConfig = {}) {
           // Fire and forget - don't block the response
           setImmediate(async () => {
             try {
-              // Use SDK mode - more reliable than CLI which can go off-rails
-              const result = await curator.curateFromSessionFile(
+              // Try session resume first (v2) - gets full context including tool uses
+              // Falls back to transcript parsing if resume fails
+              let result = await curator.curateWithSessionResume(
                 body.claude_session_id,
-                body.trigger,
-                body.cwd
+                body.trigger
               )
+
+              // Fallback to transcript-based curation if resume returned nothing
+              if (result.memories.length === 0) {
+                logger.debug('Session resume returned no memories, falling back to transcript parsing', 'server')
+                result = await curator.curateFromSessionFile(
+                  body.claude_session_id,
+                  body.trigger,
+                  body.cwd
+                )
+              }
 
               if (result.memories.length > 0) {
                 await engine.storeCurationResult(

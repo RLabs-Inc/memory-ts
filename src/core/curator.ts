@@ -14,6 +14,8 @@ import type {
   ContextType,
 } from "../types/memory.ts";
 import { logger } from "../utils/logger.ts";
+import { CurationResultSchema, type ZodCurationResult } from "../types/curation-schema.ts";
+import { z } from "zod";
 import { parseSessionFile, type ParsedMessage } from "./session-parser.ts";
 
 /**
@@ -707,6 +709,150 @@ This session has ended. Please curate the memories from this conversation accord
     }
 
     return lines.join("\n");
+  }
+
+  /**
+   * Curate using session resumption + structured outputs (v2)
+   *
+   * This is the preferred method when we have a Claude session ID.
+   * Benefits over transcript parsing:
+   * - Claude sees FULL context including tool uses, results, thinking
+   * - Structured outputs with Zod validation - no regex JSON parsing
+   * - SDK auto-retries if output doesn't match schema
+   *
+   * @param claudeSessionId - The actual Claude Code session ID (resumable)
+   * @param triggerType - What triggered curation (session_end, pre_compact, etc.)
+   */
+  async curateWithSessionResume(
+    claudeSessionId: string,
+    triggerType: CurationTrigger = "session_end",
+  ): Promise<CurationResult> {
+    // Dynamic import to make Agent SDK optional
+    const { query } = await import("@anthropic-ai/claude-agent-sdk");
+
+    const curationPrompt = this.buildCurationPrompt(triggerType);
+    const jsonSchema = z.toJSONSchema(CurationResultSchema);
+
+    logger.debug(
+      `Curator v2: Resuming session ${claudeSessionId} with structured outputs`,
+      "curator",
+    );
+
+    try {
+      const q = query({
+        prompt: "Curate memories from this session according to your system instructions. Return the structured JSON output.",
+        options: {
+          resume: claudeSessionId,
+          appendSystemPrompt: curationPrompt,  // APPEND, don't replace!
+          model: "claude-opus-4-5-20251101",
+          permissionMode: "bypassPermissions",
+          outputFormat: {
+            type: "json_schema",
+            schema: jsonSchema,
+          },
+        },
+      });
+
+      for await (const message of q) {
+        // Track usage for debugging
+        if (message.type === "assistant" && "usage" in message && message.usage) {
+          logger.debug(
+            `Curator v2: Tokens used - input: ${message.usage.input_tokens}, output: ${message.usage.output_tokens}`,
+            "curator",
+          );
+        }
+
+        // Handle result message
+        if (message.type === "result") {
+          if (message.subtype === "success" && message.structured_output) {
+            // Validate with Zod (belt + suspenders)
+            const parsed = CurationResultSchema.safeParse(message.structured_output);
+
+            if (parsed.success) {
+              logger.debug(
+                `Curator v2: Extracted ${parsed.data.memories.length} memories via structured output`,
+                "curator",
+              );
+
+              // Convert ZodCurationResult to CurationResult (add missing fields)
+              return this._zodResultToCurationResult(parsed.data);
+            } else {
+              logger.debug(
+                `Curator v2: Zod validation failed: ${parsed.error.message}`,
+                "curator",
+              );
+              return { session_summary: "", memories: [] };
+            }
+          } else if (message.subtype === "error_max_structured_output_retries") {
+            logger.debug(
+              "Curator v2: SDK failed to produce valid output after retries",
+              "curator",
+            );
+            return { session_summary: "", memories: [] };
+          } else if (message.subtype === "error") {
+            logger.debug(
+              `Curator v2: Error result - ${JSON.stringify(message)}`,
+              "curator",
+            );
+            return { session_summary: "", memories: [] };
+          }
+        }
+      }
+
+      logger.debug("Curator v2: No result message received", "curator");
+      return { session_summary: "", memories: [] };
+
+    } catch (error: any) {
+      logger.debug(
+        `Curator v2: Session resume failed: ${error.message}`,
+        "curator",
+      );
+      // Return empty - caller should fall back to transcript-based curation
+      return { session_summary: "", memories: [] };
+    }
+  }
+
+  /**
+   * Convert Zod-validated result to our CurationResult type
+   * Handles the slight differences between Zod schema and internal types
+   */
+  private _zodResultToCurationResult(zodResult: ZodCurationResult): CurationResult {
+    return {
+      session_summary: zodResult.session_summary,
+      interaction_tone: zodResult.interaction_tone ?? undefined,
+      project_snapshot: zodResult.project_snapshot
+        ? {
+            id: "",
+            session_id: "",
+            project_id: "",
+            current_phase: zodResult.project_snapshot.current_phase,
+            recent_achievements: zodResult.project_snapshot.recent_achievements,
+            active_challenges: zodResult.project_snapshot.active_challenges,
+            next_steps: zodResult.project_snapshot.next_steps,
+            created_at: Date.now(),
+          }
+        : undefined,
+      memories: zodResult.memories.map((m) => ({
+        headline: m.headline,
+        content: m.content,
+        reasoning: m.reasoning,
+        importance_weight: m.importance_weight,
+        confidence_score: m.confidence_score,
+        context_type: m.context_type as ContextType,
+        temporal_class: m.temporal_class ?? "medium_term",
+        scope: m.scope,
+        trigger_phrases: m.trigger_phrases,
+        semantic_tags: m.semantic_tags,
+        question_types: [], // Not in Zod schema, will be filled by store
+        domain: m.domain,
+        feature: m.feature,
+        related_files: m.related_files,
+        action_required: m.action_required ?? false,
+        problem_solution_pair: m.problem_solution_pair ?? false,
+        awaiting_implementation: m.awaiting_implementation,
+        awaiting_decision: m.awaiting_decision,
+      })),
+    };
   }
 
   /**
