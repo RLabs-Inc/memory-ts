@@ -404,6 +404,42 @@ export class MemoryEngine {
     return [...projectMemories, ...globalMemories]
   }
 
+  /**
+   * Update a memory's metadata
+   * Used for curation actions: promote/demote, bury, archive
+   */
+  async updateMemory(
+    projectId: string,
+    memoryId: string,
+    updates: {
+      importance_weight?: number
+      confidence_score?: number
+      exclude_from_retrieval?: boolean
+      status?: 'active' | 'pending' | 'superseded' | 'deprecated' | 'archived'
+      action_required?: boolean
+      awaiting_implementation?: boolean
+      awaiting_decision?: boolean
+      semantic_tags?: string[]
+      trigger_phrases?: string[]
+    },
+    projectPath?: string
+  ): Promise<{ success: boolean; updated_fields: string[] }> {
+    const store = await this._getStore(projectId, projectPath)
+    return store.updateMemory(projectId, memoryId, updates)
+  }
+
+  /**
+   * Get a single memory by ID
+   */
+  async getMemory(
+    projectId: string,
+    memoryId: string,
+    projectPath?: string
+  ): Promise<StoredMemory | null> {
+    const store = await this._getStore(projectId, projectPath)
+    return store.getMemory(projectId, memoryId)
+  }
+
   // ================================================================
   // FORMATTING
   // ================================================================

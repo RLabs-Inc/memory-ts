@@ -535,6 +535,113 @@ export class MemoryStore {
   }
 
   /**
+   * Update a memory's metadata fields
+   * Used for curation actions: promote/demote importance, bury, archive
+   */
+  async updateMemory(
+    projectId: string,
+    memoryId: string,
+    updates: {
+      importance_weight?: number
+      confidence_score?: number
+      exclude_from_retrieval?: boolean
+      status?: 'active' | 'pending' | 'superseded' | 'deprecated' | 'archived'
+      action_required?: boolean
+      awaiting_implementation?: boolean
+      awaiting_decision?: boolean
+      semantic_tags?: string[]
+      trigger_phrases?: string[]
+    }
+  ): Promise<{ success: boolean; updated_fields: string[] }> {
+    const { memories } = await this.getProject(projectId)
+
+    // Check memory exists
+    const existing = memories.get(memoryId)
+    if (!existing) {
+      return { success: false, updated_fields: [] }
+    }
+
+    // Build update object with only provided fields
+    const updateData: Record<string, any> = {}
+    const updatedFields: string[] = []
+
+    if (updates.importance_weight !== undefined) {
+      updateData.importance_weight = Math.max(0, Math.min(1, updates.importance_weight))
+      updatedFields.push('importance_weight')
+    }
+    if (updates.confidence_score !== undefined) {
+      updateData.confidence_score = Math.max(0, Math.min(1, updates.confidence_score))
+      updatedFields.push('confidence_score')
+    }
+    if (updates.exclude_from_retrieval !== undefined) {
+      updateData.exclude_from_retrieval = updates.exclude_from_retrieval
+      updatedFields.push('exclude_from_retrieval')
+    }
+    if (updates.status !== undefined) {
+      updateData.status = updates.status
+      updatedFields.push('status')
+    }
+    if (updates.action_required !== undefined) {
+      updateData.action_required = updates.action_required
+      updatedFields.push('action_required')
+    }
+    if (updates.awaiting_implementation !== undefined) {
+      updateData.awaiting_implementation = updates.awaiting_implementation
+      updatedFields.push('awaiting_implementation')
+    }
+    if (updates.awaiting_decision !== undefined) {
+      updateData.awaiting_decision = updates.awaiting_decision
+      updatedFields.push('awaiting_decision')
+    }
+    if (updates.semantic_tags !== undefined) {
+      updateData.semantic_tags = updates.semantic_tags
+      updatedFields.push('semantic_tags')
+    }
+    if (updates.trigger_phrases !== undefined) {
+      updateData.trigger_phrases = updates.trigger_phrases
+      updatedFields.push('trigger_phrases')
+    }
+
+    if (updatedFields.length === 0) {
+      return { success: true, updated_fields: [] }
+    }
+
+    // Perform update
+    memories.update(memoryId, updateData)
+
+    return { success: true, updated_fields: updatedFields }
+  }
+
+  /**
+   * Get a single memory by ID
+   */
+  async getMemory(projectId: string, memoryId: string): Promise<StoredMemory | null> {
+    const { memories } = await this.getProject(projectId)
+    const record = memories.get(memoryId)
+    if (!record) return null
+
+    return {
+      id: record.id,
+      headline: record.headline ?? '',
+      content: record.content,
+      reasoning: record.reasoning,
+      importance_weight: record.importance_weight,
+      confidence_score: record.confidence_score,
+      context_type: record.context_type as StoredMemory['context_type'],
+      status: record.status as StoredMemory['status'],
+      exclude_from_retrieval: record.exclude_from_retrieval,
+      action_required: record.action_required,
+      awaiting_implementation: record.awaiting_implementation,
+      awaiting_decision: record.awaiting_decision,
+      semantic_tags: record.semantic_tags,
+      trigger_phrases: record.trigger_phrases,
+      project_id: record.project_id,
+      created_at: record.created_at,
+      updated_at: record.updated_at,
+    } as StoredMemory
+  }
+
+  /**
    * Get all memories for a project
    */
   async getAllMemories(projectId: string): Promise<StoredMemory[]> {

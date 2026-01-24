@@ -387,6 +387,52 @@ export async function createServer(config: ServerConfig = {}) {
           })
         }
 
+        // PATCH memory - update metadata for curation (promote/demote/bury)
+        const patchMatch = path.match(/^\/memory\/([a-zA-Z0-9_-]+)$/)
+        if (patchMatch && req.method === 'PATCH') {
+          const memoryId = patchMatch[1]
+          const body = await req.json() as {
+            project_id: string
+            importance_weight?: number
+            confidence_score?: number
+            exclude_from_retrieval?: boolean
+            status?: 'active' | 'pending' | 'superseded' | 'deprecated' | 'archived'
+            action_required?: boolean
+            awaiting_implementation?: boolean
+            awaiting_decision?: boolean
+            semantic_tags?: string[]
+            trigger_phrases?: string[]
+            project_path?: string
+          }
+
+          if (!body.project_id) {
+            return Response.json(
+              { success: false, error: 'project_id is required' },
+              { status: 400, headers: corsHeaders }
+            )
+          }
+
+          logger.request('PATCH', `/memory/${memoryId}`, body.project_id)
+
+          const { project_id, project_path, ...updates } = body
+          const result = await engine.updateMemory(project_id, memoryId, updates, project_path)
+
+          if (!result.success) {
+            return Response.json(
+              { success: false, error: 'Memory not found', memory_id: memoryId },
+              { status: 404, headers: corsHeaders }
+            )
+          }
+
+          logger.info(`Updated memory ${memoryId}: ${result.updated_fields.join(', ')}`)
+
+          return Response.json({
+            success: true,
+            memory_id: memoryId,
+            updated_fields: result.updated_fields,
+          }, { headers: corsHeaders })
+        }
+
         // 404
         return Response.json(
           { error: 'Not found', path },

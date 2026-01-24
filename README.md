@@ -398,6 +398,11 @@ This isn't just about remembering facts. It's about preserving:
 
 ## Changelog
 
+### v0.4.15
+- **Feature**: PATCH `/memory/:id` endpoint for updating memory metadata
+- Supports: `importance_weight`, `exclude_from_retrieval`, `status`, `action_required`, and more
+- Enables dashboards and tools for memory curation (promote/demote/bury)
+
 ### v0.4.14
 - **Feature**: Action items signal (`***`) - add to end of message to retrieve all pending items
 - **Feature**: New `getActionItems()` retrieval function with special formatting
