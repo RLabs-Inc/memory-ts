@@ -424,6 +424,11 @@ This isn't just about remembering facts. It's about preserving:
 
 ## Changelog
 
+### v0.5.1
+- **Improvement**: Gemini CLI hooks now show injected content to user via `systemMessage`
+- Users see exactly what memories are surfaced (session primer, retrieved memories)
+- Full transparency - same formatted content shown to user and injected to model
+
 ### v0.5.0
 - **Feature**: Full Gemini CLI support - memory system now works with both Claude Code and Gemini CLI
 - **Feature**: `memory install --gemini` sets up hooks in `~/.gemini/settings.json`

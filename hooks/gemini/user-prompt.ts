@@ -53,19 +53,21 @@ async function main() {
     })
 
     const context = result.context_text || ''
-    
+
     if (context) {
-      // Gemini requires structured JSON output
+      // Show user exactly what we inject - same formatted content
+      // systemMessage: shown to user in terminal
+      // additionalContext: injected into model context
       console.log(JSON.stringify({
         decision: "allow",
+        systemMessage: context,
         hookSpecificOutput: {
           hookEventName: "BeforeAgent",
           additionalContext: context
         }
       }))
     } else {
-      // Must always output valid JSON or nothing? 
-      // Safest to output "allow" if no context
+      // No memories to surface - just allow without message
       console.log(JSON.stringify({ decision: "allow" }))
     }
   } catch {

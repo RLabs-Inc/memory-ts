@@ -53,10 +53,13 @@ async function main() {
     })
 
     const primer = result.context_text || ''
-    
+
     if (primer) {
-      // Gemini expects a structured JSON response for context injection
+      // Show user exactly what we inject - same formatted content
+      // systemMessage: shown to user in terminal
+      // additionalContext: injected into model context
       console.log(JSON.stringify({
+        systemMessage: primer,
         hookSpecificOutput: {
           hookEventName: "SessionStart",
           additionalContext: primer
