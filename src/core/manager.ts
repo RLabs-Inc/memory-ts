@@ -735,8 +735,18 @@ Please process these memories according to your management procedure. Use the ex
 
     const userMessage = this.buildUserMessage(projectId, sessionNumber, result, storagePaths)
 
-    // Write system prompt to temp file
-    // Include Gemini's tool variables so the manager has access to file tools
+    // Resolve storage paths from config
+    const centralPath = join(homedir(), '.local', 'share', 'memory')
+    const projectPath = storagePaths?.projectPath ?? join(centralPath, projectId)
+    const globalPath = storagePaths?.globalPath ?? join(centralPath, 'global')
+    const storageMode = storagePaths?.storageMode ?? 'central'
+
+    // Determine cwd based on storage mode:
+    // - Central: cwd = centralPath (parent of both project and global, write access to both)
+    // - Local: cwd = projectPath (write access to project only, global is read-only)
+    const managerCwd = storageMode === 'central' ? centralPath : projectPath
+
+    // Write system prompt to temp file (in cwd so it's accessible)
     const geminiSystemPrompt = `${systemPrompt}
 
 ## Available Tools
@@ -747,40 +757,63 @@ You have access to the following tools to manage memory files:
 
 Use these tools to read existing memories, write updates, and manage the memory filesystem.
 `
-    const tempPromptPath = join(homedir(), '.local', 'share', 'memory', '.gemini-manager-prompt.md')
-
-    // Ensure directory exists
-    const tempDir = join(homedir(), '.local', 'share', 'memory')
-    if (!existsSync(tempDir)) {
-      const { mkdirSync } = await import('fs')
-      mkdirSync(tempDir, { recursive: true })
-    }
-
+    const tempPromptPath = join(managerCwd, '.gemini-manager-prompt.md')
     await Bun.write(tempPromptPath, geminiSystemPrompt)
+
+    // Copy user's Gemini settings to managerCwd with hooks disabled
+    // This prevents the manager's session from triggering hooks recursively
+    const userSettingsPath = join(homedir(), '.gemini', 'settings.json')
+    const managerSettingsDir = join(managerCwd, '.gemini')
+    const managerSettingsPath = join(managerSettingsDir, 'settings.json')
+
+    try {
+      let settings: any = {}
+
+      // Load user's settings if they exist
+      if (existsSync(userSettingsPath)) {
+        const userSettings = await Bun.file(userSettingsPath).text()
+        settings = JSON.parse(userSettings)
+      }
+
+      // Disable hooks (hooks.enabled inside hooks object)
+      if (!settings.hooks) {
+        settings.hooks = {}
+      }
+      settings.hooks.enabled = false
+
+      // Ensure .gemini directory exists in managerCwd
+      if (!existsSync(managerSettingsDir)) {
+        const { mkdirSync } = await import('fs')
+        mkdirSync(managerSettingsDir, { recursive: true })
+      }
+
+      await Bun.write(managerSettingsPath, JSON.stringify(settings, null, 2))
+      logger.debug(`Manager Gemini: Created settings with hooks disabled at ${managerSettingsPath}`, 'manager')
+    } catch (err: any) {
+      logger.debug(`Manager Gemini: Could not create settings file: ${err.message}`, 'manager')
+    }
 
     logger.debug(`Manager Gemini: Starting management for project ${projectId}`, 'manager')
     logger.debug(`Manager Gemini: Processing ${result.memories.length} memories`, 'manager')
-    logger.debug(`Manager Gemini: Including directory: ${join(homedir(), '.local', 'share', 'memory')}`, 'manager')
+    logger.debug(`Manager Gemini: Storage mode: ${storageMode}, cwd: ${managerCwd}`, 'manager')
 
-    // Build CLI command (no --resume needed, manager operates on provided data)
-    // CRITICAL: Add --include-directories to allow Gemini to access memory storage
-    // Without this, Gemini is sandboxed to the project directory and can't read/write memories
-    const memoryStoragePath = join(homedir(), '.local', 'share', 'memory')
+    // Build CLI command
+    // - cwd gives write access to that tree
+    // - --include-directories adds read access to other paths
     const args = [
       '-p', userMessage,
       '--output-format', 'json',
       '--yolo',  // Auto-approve file operations
-      '--include-directories', memoryStoragePath,  // Allow access to memory storage
+      '--include-directories', projectPath,
+      '--include-directories', globalPath,
     ]
 
-    logger.debug(`Manager Gemini: Spawning gemini CLI`, 'manager')
-    logger.debug(`Manager Gemini: Running from directory: ${memoryStoragePath}`, 'manager')
+    logger.debug(`Manager Gemini: Spawning gemini CLI from ${managerCwd}`, 'manager')
 
     // Execute CLI with system prompt via environment variable
-    // CRITICAL: Run from memory storage directory so it becomes the primary workspace
-    // This allows both READ and WRITE operations (--include-directories only allows reads)
+    // cwd determines write access, --include-directories adds read access
     const proc = Bun.spawn(['gemini', ...args], {
-      cwd: memoryStoragePath,  // Run FROM memory directory to allow writes
+      cwd: managerCwd,
       env: {
         ...process.env,
         MEMORY_CURATOR_ACTIVE: '1',  // Prevent recursive hook triggering
