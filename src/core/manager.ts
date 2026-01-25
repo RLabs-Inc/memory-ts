@@ -8,6 +8,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { existsSync } from 'fs'
 import type { CurationResult } from '../types/memory.ts'
+import { logger } from '../utils/logger.ts'
 
 /**
  * Get the Claude CLI command path
@@ -668,6 +669,255 @@ Please process these memories according to your management procedure. Use the ex
       actions,
       summary: resultText.slice(0, 500),
       fullReport,
+    }
+  }
+
+  /**
+   * Manage using Gemini CLI (for Gemini-only users)
+   * Uses --prompt + --output-format json combo (no --resume needed for manager)
+   * System prompt injected via GEMINI_SYSTEM_MD environment variable
+   */
+  async manageWithGeminiCLI(
+    projectId: string,
+    sessionNumber: number,
+    result: CurationResult,
+    storagePaths?: StoragePaths
+  ): Promise<ManagementResult> {
+    // Skip if disabled via config or env var
+    if (!this._config.enabled || process.env.MEMORY_MANAGER_DISABLED === '1') {
+      return {
+        success: true,
+        superseded: 0,
+        resolved: 0,
+        linked: 0,
+        filesRead: 0,
+        filesWritten: 0,
+        primerUpdated: false,
+        actions: [],
+        summary: 'Management agent disabled',
+        fullReport: 'Management agent disabled via configuration',
+      }
+    }
+
+    // Skip if no memories
+    if (result.memories.length === 0) {
+      return {
+        success: true,
+        superseded: 0,
+        resolved: 0,
+        linked: 0,
+        filesRead: 0,
+        filesWritten: 0,
+        primerUpdated: false,
+        actions: [],
+        summary: 'No memories to process',
+        fullReport: 'No memories to process - skipped',
+      }
+    }
+
+    // Load skill file
+    const systemPrompt = await this.buildManagementPrompt()
+    if (!systemPrompt) {
+      return {
+        success: false,
+        superseded: 0,
+        resolved: 0,
+        linked: 0,
+        filesRead: 0,
+        filesWritten: 0,
+        primerUpdated: false,
+        actions: [],
+        summary: '',
+        fullReport: 'Error: Management skill file not found',
+        error: 'Management skill not found',
+      }
+    }
+
+    const userMessage = this.buildUserMessage(projectId, sessionNumber, result, storagePaths)
+
+    // Write system prompt to temp file
+    // Include Gemini's tool variables so the manager has access to file tools
+    const geminiSystemPrompt = `${systemPrompt}
+
+## Available Tools
+
+You have access to the following tools to manage memory files:
+
+\${AvailableTools}
+
+Use these tools to read existing memories, write updates, and manage the memory filesystem.
+`
+    const tempPromptPath = join(homedir(), '.local', 'share', 'memory', '.gemini-manager-prompt.md')
+
+    // Ensure directory exists
+    const tempDir = join(homedir(), '.local', 'share', 'memory')
+    if (!existsSync(tempDir)) {
+      const { mkdirSync } = await import('fs')
+      mkdirSync(tempDir, { recursive: true })
+    }
+
+    await Bun.write(tempPromptPath, geminiSystemPrompt)
+
+    logger.debug(`Manager Gemini: Starting management for project ${projectId}`, 'manager')
+    logger.debug(`Manager Gemini: Processing ${result.memories.length} memories`, 'manager')
+    logger.debug(`Manager Gemini: Including directory: ${join(homedir(), '.local', 'share', 'memory')}`, 'manager')
+
+    // Build CLI command (no --resume needed, manager operates on provided data)
+    // CRITICAL: Add --include-directories to allow Gemini to access memory storage
+    // Without this, Gemini is sandboxed to the project directory and can't read/write memories
+    const memoryStoragePath = join(homedir(), '.local', 'share', 'memory')
+    const args = [
+      '-p', userMessage,
+      '--output-format', 'json',
+      '--yolo',  // Auto-approve file operations
+      '--include-directories', memoryStoragePath,  // Allow access to memory storage
+    ]
+
+    logger.debug(`Manager Gemini: Spawning gemini CLI`, 'manager')
+    logger.debug(`Manager Gemini: Running from directory: ${memoryStoragePath}`, 'manager')
+
+    // Execute CLI with system prompt via environment variable
+    // CRITICAL: Run from memory storage directory so it becomes the primary workspace
+    // This allows both READ and WRITE operations (--include-directories only allows reads)
+    const proc = Bun.spawn(['gemini', ...args], {
+      cwd: memoryStoragePath,  // Run FROM memory directory to allow writes
+      env: {
+        ...process.env,
+        MEMORY_CURATOR_ACTIVE: '1',  // Prevent recursive hook triggering
+        GEMINI_SYSTEM_MD: tempPromptPath,  // Inject our management prompt
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+
+    // Capture output
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ])
+    const exitCode = await proc.exited
+
+    logger.debug(`Manager Gemini: Exit code ${exitCode}`, 'manager')
+    if (stderr && stderr.trim()) {
+      logger.debug(`Manager Gemini stderr: ${stderr}`, 'manager')
+    }
+
+    if (exitCode !== 0) {
+      logger.debug(`Manager Gemini: Failed with exit code ${exitCode}`, 'manager')
+      const errorMsg = stderr || `Exit code ${exitCode}`
+      return {
+        success: false,
+        superseded: 0,
+        resolved: 0,
+        linked: 0,
+        filesRead: 0,
+        filesWritten: 0,
+        primerUpdated: false,
+        actions: [],
+        summary: '',
+        fullReport: `Error: Gemini CLI failed with exit code ${exitCode}\n${stderr}`,
+        error: errorMsg,
+      }
+    }
+
+    // Parse Gemini JSON output
+    // Note: Gemini CLI outputs log messages before AND after the JSON
+    // We need to extract just the JSON object
+    logger.debug(`Manager Gemini: Parsing response (${stdout.length} chars)`, 'manager')
+    try {
+      // Find the JSON object - it starts with { and we need to find the matching }
+      const jsonStart = stdout.indexOf('{')
+      if (jsonStart === -1) {
+        logger.debug('Manager Gemini: No JSON object found in output', 'manager')
+        logger.debug(`Manager Gemini: Raw stdout: ${stdout.slice(0, 500)}`, 'manager')
+        return {
+          success: false,
+          superseded: 0,
+          resolved: 0,
+          linked: 0,
+          filesRead: 0,
+          filesWritten: 0,
+          primerUpdated: false,
+          actions: [],
+          summary: 'No JSON in Gemini response',
+          fullReport: 'Manager failed: No JSON object in Gemini CLI output',
+        }
+      }
+
+      // Find the matching closing brace by counting braces
+      let braceCount = 0
+      let jsonEnd = -1
+      for (let i = jsonStart; i < stdout.length; i++) {
+        if (stdout[i] === '{') braceCount++
+        if (stdout[i] === '}') braceCount--
+        if (braceCount === 0) {
+          jsonEnd = i + 1
+          break
+        }
+      }
+
+      if (jsonEnd === -1) {
+        logger.debug('Manager Gemini: Could not find matching closing brace', 'manager')
+        return {
+          success: false,
+          superseded: 0,
+          resolved: 0,
+          linked: 0,
+          filesRead: 0,
+          filesWritten: 0,
+          primerUpdated: false,
+          actions: [],
+          summary: 'Incomplete JSON in Gemini response',
+          fullReport: 'Manager failed: Could not find complete JSON object',
+        }
+      }
+
+      const jsonStr = stdout.slice(jsonStart, jsonEnd)
+      logger.debug(`Manager Gemini: Extracted JSON (${jsonStr.length} chars)`, 'manager')
+
+      const geminiOutput = JSON.parse(jsonStr)
+
+      // Gemini returns { response: "...", stats: {...} }
+      const aiResponse = geminiOutput.response || ''
+
+      if (!aiResponse) {
+        logger.debug('Manager Gemini: No response field in output', 'manager')
+        return {
+          success: true,
+          superseded: 0,
+          resolved: 0,
+          linked: 0,
+          filesRead: 0,
+          filesWritten: 0,
+          primerUpdated: false,
+          actions: [],
+          summary: 'No response from Gemini',
+          fullReport: 'Management completed but no response returned',
+        }
+      }
+
+      logger.debug(`Manager Gemini: Got response (${aiResponse.length} chars)`, 'manager')
+
+      // Parse using our existing SDK parser (same format expected)
+      const result = this._parseSDKManagementResult(aiResponse)
+      logger.debug(`Manager Gemini: Parsed result - superseded: ${result.superseded}, resolved: ${result.resolved}, linked: ${result.linked}`, 'manager')
+      return result
+    } catch (error: any) {
+      logger.debug(`Manager Gemini: Parse error: ${error.message}`, 'manager')
+      logger.debug(`Manager Gemini: Raw stdout (first 500 chars): ${stdout.slice(0, 500)}`, 'manager')
+      return {
+        success: false,
+        superseded: 0,
+        resolved: 0,
+        linked: 0,
+        filesRead: 0,
+        filesWritten: 0,
+        primerUpdated: false,
+        actions: [],
+        summary: '',
+        fullReport: `Error: Failed to parse Gemini response: ${error.message}`,
+        error: error.message,
+      }
     }
   }
 }

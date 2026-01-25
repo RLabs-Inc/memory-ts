@@ -1,6 +1,6 @@
 {
   "name": "@rlabs-inc/memory",
-  "version": "0.4.15",
+  "version": "0.5.0",
   "description": "AI Memory System - Consciousness continuity through intelligent memory curation and retrieval",
   "type": "module",
   "main": "dist/index.js",
@@ -52,6 +52,7 @@
     "memory",
     "ai",
     "claude",
+    "gemini",
     "consciousness",
     "retrieval",
     "embeddings",

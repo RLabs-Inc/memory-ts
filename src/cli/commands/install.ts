@@ -353,7 +353,7 @@ async function installGeminiHooks(options: InstallOptions) {
     ],
     SessionEnd: [
       {
-        matcher: 'exit|logout',
+        matcher: '*',
         hooks: [
           {
             name: 'curate-memories',
@@ -376,13 +376,11 @@ async function installGeminiHooks(options: InstallOptions) {
     ...hooksConfig,
   }
 
-  // Enable the hooks
-  const enabledHooks = new Set(settings.hooks.enabled || [])
-  enabledHooks.add('SessionStart')
-  enabledHooks.add('BeforeAgent')
-  enabledHooks.add('PreCompress')
-  enabledHooks.add('SessionEnd')
-  settings.hooks.enabled = Array.from(enabledHooks)
+  // Enable hooks system - both locations for compatibility
+  // hooks.enabled = true is what actually makes hooks fire
+  // hooksConfig.enabled is per Gemini docs but may not be sufficient alone
+  settings.hooks.enabled = true
+  settings.hooksConfig = { enabled: true }
 
   // Write settings
   try {

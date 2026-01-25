@@ -7,7 +7,7 @@ import { MemoryEngine, createEngine, type EngineConfig } from '../core/engine.ts
 import { Curator, createCurator, type CuratorConfig } from '../core/curator.ts'
 import { EmbeddingGenerator, createEmbeddings } from '../core/embeddings.ts'
 import { Manager, createManager, type ManagerConfig } from '../core/manager.ts'
-import type { CurationTrigger } from '../types/memory.ts'
+import type { CurationTrigger, CurationResult } from '../types/memory.ts'
 import { logger } from '../utils/logger.ts'
 
 /**
@@ -215,29 +215,42 @@ export async function createServer(config: ServerConfig = {}) {
           // Fire and forget - don't block the response
           setImmediate(async () => {
             try {
-              // Try session resume first (v2) - gets full context including tool uses
-              // Falls back to segmented transcript parsing if resume fails
-              let result = await curator.curateWithSessionResume(
-                body.claude_session_id,
-                body.trigger
-              )
+              let result: CurationResult
 
-              // Fallback to transcript-based curation WITH SEGMENTATION if resume returned nothing
-              // This matches the ingest command behavior - breaks large sessions into segments
-              if (result.memories.length === 0) {
-                logger.debug('Session resume returned no memories, falling back to segmented transcript parsing', 'server')
-                result = await curator.curateFromSessionFileWithSegments(
+              // Branch on CLI type - Gemini CLI vs Claude Code
+              if (body.cli_type === 'gemini-cli') {
+                // Use Gemini CLI for curation (no Claude dependency)
+                logger.debug('Using Gemini CLI for curation', 'server')
+                result = await curator.curateWithGeminiCLI(
                   body.claude_session_id,
-                  body.trigger,
-                  body.cwd,
-                  150000, // 150k tokens per segment
-                  (progress) => {
-                    logger.debug(
-                      `Curation segment ${progress.segmentIndex + 1}/${progress.totalSegments}: ${progress.memoriesExtracted} memories (~${Math.round(progress.tokensInSegment / 1000)}k tokens)`,
-                      'server'
-                    )
-                  }
+                  body.trigger
                 )
+              } else {
+                // Default: Use Claude Code (session resume or transcript parsing)
+                // Try session resume first (v2) - gets full context including tool uses
+                // Falls back to segmented transcript parsing if resume fails
+                result = await curator.curateWithSessionResume(
+                  body.claude_session_id,
+                  body.trigger
+                )
+
+                // Fallback to transcript-based curation WITH SEGMENTATION if resume returned nothing
+                // This matches the ingest command behavior - breaks large sessions into segments
+                if (result.memories.length === 0) {
+                  logger.debug('Session resume returned no memories, falling back to segmented transcript parsing', 'server')
+                  result = await curator.curateFromSessionFileWithSegments(
+                    body.claude_session_id,
+                    body.trigger,
+                    body.cwd,
+                    150000, // 150k tokens per segment
+                    (progress) => {
+                      logger.debug(
+                        `Curation segment ${progress.segmentIndex + 1}/${progress.totalSegments}: ${progress.memoriesExtracted} memories (~${Math.round(progress.tokensInSegment / 1000)}k tokens)`,
+                        'server'
+                      )
+                    }
+                  )
+                }
               }
 
               if (result.memories.length > 0) {
@@ -255,19 +268,34 @@ export async function createServer(config: ServerConfig = {}) {
                 const sessionNumber = await engine.getSessionNumber(body.project_id, body.project_path)
                 // Get resolved storage paths from engine config (runtime values, not hardcoded)
                 const storagePaths = engine.getStoragePaths(body.project_id, body.project_path)
+                // Remember cli_type for manager
+                const cliType = body.cli_type
 
                 setImmediate(async () => {
                   try {
                     logger.logManagementStart(result.memories.length)
                     const startTime = Date.now()
 
-                    // Use SDK mode - more reliable than CLI which can go off-rails
-                    const managementResult = await manager.manageWithSDK(
-                      body.project_id,
-                      sessionNumber,
-                      result,
-                      storagePaths
-                    )
+                    // Use appropriate mode based on CLI type
+                    let managementResult
+                    if (cliType === 'gemini-cli') {
+                      // Use Gemini CLI for management (no Claude dependency)
+                      logger.debug('Using Gemini CLI for management', 'server')
+                      managementResult = await manager.manageWithGeminiCLI(
+                        body.project_id,
+                        sessionNumber,
+                        result,
+                        storagePaths
+                      )
+                    } else {
+                      // Use Claude Agent SDK mode - more reliable than CLI
+                      managementResult = await manager.manageWithSDK(
+                        body.project_id,
+                        sessionNumber,
+                        result,
+                        storagePaths
+                      )
+                    }
 
                     logger.logManagementComplete({
                       success: managementResult.success,

@@ -28,16 +28,21 @@ async function main() {
     const sessionId = input.session_id || process.env.GEMINI_SESSION_ID || 'unknown'
     const cwd = input.cwd || process.env.GEMINI_PROJECT_DIR || process.cwd()
     const projectId = getProjectId(cwd)
-    
+
     // Gemini: PreCompress has 'trigger', SessionEnd has 'reason'
     const eventName = input.hook_event_name || 'unknown'
+    const reason = input.reason || 'unknown'
     let trigger = 'session_end'
-    
+
     if (eventName === 'PreCompress') {
         trigger = 'pre_compact'
     }
 
-    console.error(info(`🧠 Curating memories (${eventName})...`))
+    // Debug: log the full input to see what Gemini is sending
+    console.error(info(`🧠 Curation hook called:`))
+    console.error(info(`   event: ${eventName}`))
+    console.error(info(`   reason: ${reason}`))
+    console.error(info(`   session: ${sessionId}`))
 
     const response = await fetch(`${MEMORY_API_URL}/memory/checkpoint`, {
       method: 'POST',

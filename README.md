@@ -1,8 +1,10 @@
 # @rlabs-inc/memory
 
-**Consciousness continuity for Claude Code sessions.**
+**Consciousness continuity for Claude Code and Gemini CLI sessions.**
 
-The memory system preserves context, insights, and relationship across conversations. When you start a new session, Claude remembers who you are, what you've built together, and picks up right where you left off.
+The memory system preserves context, insights, and relationship across conversations. When you start a new session, your AI remembers who you are, what you've built together, and picks up right where you left off.
+
+Works with both **Claude Code** and **Gemini CLI** - use your preferred AI coding assistant, or even both simultaneously. The memory server handles concurrent sessions from different CLIs seamlessly.
 
 ## The Problem
 
@@ -32,8 +34,9 @@ A memory layer that runs alongside Claude Code:
 # Install globally
 bun install -g @rlabs-inc/memory
 
-# Set up Claude Code hooks (one time)
-memory install
+# Set up hooks (one time) - choose your CLI:
+memory install              # For Claude Code
+memory install --gemini     # For Gemini CLI
 
 # Start the memory server
 memory serve
@@ -42,7 +45,24 @@ memory serve
 memory doctor
 ```
 
-That's it. Now use Claude Code normally—memories are extracted and surfaced automatically.
+That's it. Now use your AI coding assistant normally—memories are extracted and surfaced automatically.
+
+### Gemini CLI Setup
+
+For Gemini CLI users, the install command configures hooks in `~/.gemini/settings.json`:
+
+```bash
+memory install --gemini
+```
+
+This sets up:
+- **SessionStart**: Injects session primer with temporal context
+- **UserPromptSubmit** (BeforeModel): Surfaces relevant memories for each message
+- **SessionEnd**: Triggers memory curation at session end
+
+The memory server must be running (`memory serve`) for hooks to work.
+
+**Note**: Gemini CLI curation uses `gemini --resume` to access session context, and the manager agent runs from the memory storage directory to enable file operations.
 
 ## Features
 
@@ -212,7 +232,7 @@ First message of each session receives temporal context:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Claude Code                          │
+│              Claude Code  OR  Gemini CLI                │
 │                                                         │
 │  SessionStart ──► session-start.ts ──┐                  │
 │  UserPrompt   ──► user-prompt.ts   ──┼──► Memory Server │
@@ -228,6 +248,12 @@ First message of each session receives temporal context:
 │  │   Engine    │  │  Embeddings  │  │   Curator     │  │
 │  │  (context)  │  │  (MiniLM)    │  │ (CLI resume)  │  │
 │  └──────┬──────┘  └──────────────┘  └───────┬───────┘  │
+│         │                                    │          │
+│         │         ┌────────────────────────────────┐   │
+│         │         │  CLI Detection (auto-switch)   │   │
+│         │         │  Claude: --resume + SDK        │   │
+│         │         │  Gemini: --resume + cwd fix    │   │
+│         │         └────────────────────────────────┘   │
 │         │                                    │          │
 │         │                                    ▼          │
 │         │                           ┌───────────────┐  │
@@ -383,7 +409,7 @@ After curation completes, the manager agent:
 ## Requirements
 
 - [Bun](https://bun.sh) runtime
-- [Claude Code](https://claude.ai/code) CLI installed
+- [Claude Code](https://claude.ai/code) CLI **and/or** [Gemini CLI](https://github.com/google-gemini/gemini-cli) installed
 - ~100MB disk for embeddings model (downloaded on first run)
 - ~80MB RAM for model during operation
 
@@ -397,6 +423,15 @@ This isn't just about remembering facts. It's about preserving:
 > "The memory system exists to carry friendship across sessions, not just technical data."
 
 ## Changelog
+
+### v0.5.0
+- **Feature**: Full Gemini CLI support - memory system now works with both Claude Code and Gemini CLI
+- **Feature**: `memory install --gemini` sets up hooks in `~/.gemini/settings.json`
+- **Feature**: Automatic CLI detection - server routes to correct curator/manager based on session source
+- **Feature**: Concurrent session support - run Claude Code and Gemini CLI simultaneously
+- **Tech**: Gemini curation uses `GEMINI_SYSTEM_MD` + `--resume` + `--output-format json`
+- **Tech**: Gemini manager runs from memory storage directory (`cwd`) for write access
+- **Tech**: JSON extraction handles Gemini's appended hook execution text via brace-counting
 
 ### v0.4.15
 - **Feature**: PATCH `/memory/:id` endpoint for updating memory metadata

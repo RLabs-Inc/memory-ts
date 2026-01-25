@@ -802,6 +802,143 @@ This session has ended. Please curate the memories from this conversation accord
   }
 
   /**
+   * Curate using Gemini CLI (for Gemini-only users)
+   * Uses --resume + --prompt + --output-format json combo
+   * System prompt injected via GEMINI_SYSTEM_MD environment variable
+   */
+  async curateWithGeminiCLI(
+    sessionId: string,
+    triggerType: CurationTrigger = "session_end",
+  ): Promise<CurationResult> {
+    const systemPrompt = this.buildCurationPrompt(triggerType);
+    const userMessage =
+      "This session has ended. Please curate the memories from our conversation according to the instructions in your system prompt. Return ONLY the JSON structure.";
+
+    // Write system prompt to temp file
+    const tempPromptPath = join(homedir(), ".local", "share", "memory", ".gemini-curator-prompt.md");
+
+    // Ensure directory exists
+    const tempDir = join(homedir(), ".local", "share", "memory");
+    if (!existsSync(tempDir)) {
+      const { mkdirSync } = await import("fs");
+      mkdirSync(tempDir, { recursive: true });
+    }
+
+    await Bun.write(tempPromptPath, systemPrompt);
+
+    // Build CLI command
+    const args = [
+      "--resume", sessionId,
+      "-p", userMessage,
+      "--output-format", "json",
+    ];
+
+    logger.debug(`Curator Gemini: Spawning gemini CLI with session ${sessionId}`, "curator");
+
+    // Execute CLI with system prompt via environment variable
+    const proc = Bun.spawn(["gemini", ...args], {
+      env: {
+        ...process.env,
+        MEMORY_CURATOR_ACTIVE: "1", // Prevent recursive hook triggering
+        GEMINI_SYSTEM_MD: tempPromptPath, // Inject our curation prompt
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    // Capture output
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const exitCode = await proc.exited;
+
+    logger.debug(`Curator Gemini: Exit code ${exitCode}`, "curator");
+    if (stderr && stderr.trim()) {
+      logger.debug(`Curator Gemini stderr: ${stderr}`, "curator");
+    }
+
+    if (exitCode !== 0) {
+      logger.debug(`Curator Gemini: Failed with exit code ${exitCode}`, "curator");
+      return { session_summary: "", memories: [] };
+    }
+
+    // Parse Gemini JSON output
+    // Note: Gemini CLI outputs log messages before AND after the JSON
+    // We need to extract just the JSON object
+    try {
+      // Find the JSON object - it starts with { and we need to find the matching }
+      const jsonStart = stdout.indexOf('{');
+      if (jsonStart === -1) {
+        logger.debug("Curator Gemini: No JSON object found in output", "curator");
+        logger.debug(`Curator Gemini: Raw stdout: ${stdout.slice(0, 500)}`, "curator");
+        return { session_summary: "", memories: [] };
+      }
+
+      // Find the matching closing brace by counting braces
+      let braceCount = 0;
+      let jsonEnd = -1;
+      for (let i = jsonStart; i < stdout.length; i++) {
+        if (stdout[i] === '{') braceCount++;
+        if (stdout[i] === '}') braceCount--;
+        if (braceCount === 0) {
+          jsonEnd = i + 1;
+          break;
+        }
+      }
+
+      if (jsonEnd === -1) {
+        logger.debug("Curator Gemini: Could not find matching closing brace", "curator");
+        return { session_summary: "", memories: [] };
+      }
+
+      const jsonStr = stdout.slice(jsonStart, jsonEnd);
+      logger.debug(`Curator Gemini: Extracted JSON (${jsonStr.length} chars) from position ${jsonStart} to ${jsonEnd}`, "curator");
+
+      let geminiOutput;
+      try {
+        geminiOutput = JSON.parse(jsonStr);
+        logger.debug(`Curator Gemini: Parsed outer JSON successfully`, "curator");
+      } catch (outerError: any) {
+        logger.debug(`Curator Gemini: Outer JSON parse failed: ${outerError.message}`, "curator");
+        logger.debug(`Curator Gemini: JSON string (first 500): ${jsonStr.slice(0, 500)}`, "curator");
+        return { session_summary: "", memories: [] };
+      }
+
+      // Gemini returns { response: "...", stats: {...} }
+      // The response field contains the AI's output (our curation JSON)
+      const aiResponse = geminiOutput.response || "";
+
+      if (!aiResponse) {
+        logger.debug("Curator Gemini: No response field in output", "curator");
+        return { session_summary: "", memories: [] };
+      }
+
+      logger.debug(`Curator Gemini: Got response (${aiResponse.length} chars)`, "curator");
+
+      // Remove markdown code blocks if present
+      let cleanResponse = aiResponse;
+      const codeBlockMatch = aiResponse.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (codeBlockMatch) {
+        cleanResponse = codeBlockMatch[1].trim();
+        logger.debug(`Curator Gemini: Extracted JSON from code block (${cleanResponse.length} chars)`, "curator");
+      } else {
+        logger.debug(`Curator Gemini: No code block found, using raw response`, "curator");
+      }
+
+      logger.debug(`Curator Gemini: Calling parseCurationResponse...`, "curator");
+      // Use existing parser
+      const result = this.parseCurationResponse(cleanResponse);
+      logger.debug(`Curator Gemini: Parsed ${result.memories.length} memories`, "curator");
+      return result;
+    } catch (error: any) {
+      logger.debug(`Curator Gemini: Parse error: ${error.message}`, "curator");
+      logger.debug(`Curator Gemini: Raw stdout (first 500 chars): ${stdout.slice(0, 500)}`, "curator");
+      return { session_summary: "", memories: [] };
+    }
+  }
+
+  /**
    * Legacy method: Curate using Anthropic SDK with API key
    * Kept for backwards compatibility
    * @deprecated Use curateWithSDK() which uses Agent SDK (no API key needed)
