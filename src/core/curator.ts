@@ -827,13 +827,14 @@ This session has ended. Please curate the memories from this conversation accord
     await Bun.write(tempPromptPath, systemPrompt);
 
     // Build CLI command
+    // Use --resume latest since SessionEnd hook fires immediately after session ends
     const args = [
-      "--resume", sessionId,
+      "--resume", "latest",
       "-p", userMessage,
       "--output-format", "json",
     ];
 
-    logger.debug(`Curator Gemini: Spawning gemini CLI with session ${sessionId}`, "curator");
+    logger.debug(`Curator Gemini: Spawning gemini CLI to resume latest session (triggered by ${sessionId})`, "curator");
 
     // Execute CLI with system prompt via environment variable
     const proc = Bun.spawn(["gemini", ...args], {
