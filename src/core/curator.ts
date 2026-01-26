@@ -818,6 +818,62 @@ This session has ended. Please curate the memories from this conversation accord
       "curator",
     );
 
+    // Temporarily disable hooks in project's .gemini/settings.json
+    // This prevents recursive hook triggering (env vars don't propagate to hook subprocesses)
+    const projectGeminiDir = cwd ? join(cwd, ".gemini") : null;
+    const projectSettingsPath = projectGeminiDir
+      ? join(projectGeminiDir, "settings.json")
+      : null;
+    const backupSettingsPath = projectSettingsPath
+      ? `${projectSettingsPath}.memory-backup`
+      : null;
+    let hadExistingSettings = false;
+
+    if (projectSettingsPath && projectGeminiDir) {
+      try {
+        // Backup existing settings if present
+        if (existsSync(projectSettingsPath)) {
+          hadExistingSettings = true;
+          const existingContent = await Bun.file(projectSettingsPath).text();
+          await Bun.write(backupSettingsPath!, existingContent);
+          logger.debug(
+            `Curator Gemini: Backed up existing settings to ${backupSettingsPath}`,
+            "curator",
+          );
+        }
+
+        // Ensure .gemini directory exists
+        if (!existsSync(projectGeminiDir)) {
+          const { mkdirSync } = await import("fs");
+          mkdirSync(projectGeminiDir, { recursive: true });
+        }
+
+        // Create temporary settings with hooks disabled
+        const tempSettings = {
+          hooks: {
+            disabled: [
+              "inject-memories",
+              "load-session-primer",
+              "curate-memories",
+            ],
+          },
+        };
+        await Bun.write(
+          projectSettingsPath,
+          JSON.stringify(tempSettings, null, 2),
+        );
+        logger.debug(
+          `Curator Gemini: Created temporary settings with hooks disabled`,
+          "curator",
+        );
+      } catch (err: any) {
+        logger.debug(
+          `Curator Gemini: Could not manage settings file: ${err.message}`,
+          "curator",
+        );
+      }
+    }
+
     // Execute CLI with system prompt via environment variable
     // Must run from original project directory so --resume latest finds correct session
     const proc = Bun.spawn(["gemini", ...args], {
@@ -838,6 +894,35 @@ This session has ended. Please curate the memories from this conversation accord
       new Response(proc.stderr).text(),
     ]);
     const exitCode = await proc.exited;
+
+    // Cleanup: Restore original settings file
+    if (projectSettingsPath && backupSettingsPath) {
+      try {
+        const { unlinkSync } = await import("fs");
+        if (hadExistingSettings && existsSync(backupSettingsPath)) {
+          // Restore backup
+          const backupContent = await Bun.file(backupSettingsPath).text();
+          await Bun.write(projectSettingsPath, backupContent);
+          unlinkSync(backupSettingsPath);
+          logger.debug(
+            `Curator Gemini: Restored original settings from backup`,
+            "curator",
+          );
+        } else if (existsSync(projectSettingsPath)) {
+          // Delete temporary settings (there was no original)
+          unlinkSync(projectSettingsPath);
+          logger.debug(
+            `Curator Gemini: Removed temporary settings file`,
+            "curator",
+          );
+        }
+      } catch (err: any) {
+        logger.debug(
+          `Curator Gemini: Could not cleanup settings: ${err.message}`,
+          "curator",
+        );
+      }
+    }
 
     logger.debug(`Curator Gemini: Exit code ${exitCode}`, "curator");
     if (stderr && stderr.trim()) {
