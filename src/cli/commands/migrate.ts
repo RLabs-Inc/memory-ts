@@ -275,8 +275,9 @@ async function migrateFile(
     }
 
     const hasNullEmbedding = !parsed.frontmatter.embedding || parsed.frontmatter.embedding === null
+    const hasWrongDimensions = !hasNullEmbedding && Array.isArray(parsed.frontmatter.embedding) && parsed.frontmatter.embedding.length !== 384
     const needsSchema = needsV3Migration(parsed.frontmatter)
-    const needsEmbedding = options.embeddings && hasNullEmbedding
+    const needsEmbedding = options.embeddings && (hasNullEmbedding || hasWrongDimensions)
 
     // Nothing to do
     if (!needsSchema && !needsEmbedding) {

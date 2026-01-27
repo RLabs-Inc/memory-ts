@@ -288,6 +288,13 @@ export class SmartVectorRetrieval {
     }
     const v1 = vec1 instanceof Float32Array ? vec1 : new Float32Array(vec1)
     const v2 = vec2 instanceof Float32Array ? vec2 : new Float32Array(vec2)
+
+    // Skip mismatched dimensions instead of crashing
+    if (v1.length !== v2.length) {
+      logger.debug(`Vector dimension mismatch: ${v1.length} vs ${v2.length}, skipping`, 'retrieval')
+      return 0.0
+    }
+
     const similarity = cosineSimilarity(v1, v2)
 
     // Collect samples to understand similarity range
