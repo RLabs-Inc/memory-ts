@@ -423,19 +423,19 @@ Focus ONLY on technical, architectural, debugging, decision, workflow, and proje
         interaction_tone: data.interaction_tone,
         project_snapshot: data.project_snapshot
           ? {
-              id: "",
-              session_id: "",
-              project_id: "",
-              current_phase: data.project_snapshot.current_phase ?? "",
-              recent_achievements: this._ensureArray(
-                data.project_snapshot.recent_achievements,
-              ),
-              active_challenges: this._ensureArray(
-                data.project_snapshot.active_challenges,
-              ),
-              next_steps: this._ensureArray(data.project_snapshot.next_steps),
-              created_at: Date.now(),
-            }
+            id: "",
+            session_id: "",
+            project_id: "",
+            current_phase: data.project_snapshot.current_phase ?? "",
+            recent_achievements: this._ensureArray(
+              data.project_snapshot.recent_achievements,
+            ),
+            active_challenges: this._ensureArray(
+              data.project_snapshot.active_challenges,
+            ),
+            next_steps: this._ensureArray(data.project_snapshot.next_steps),
+            created_at: Date.now(),
+          }
           : undefined,
         memories: this._parseMemories(data.memories ?? []),
       };
@@ -855,7 +855,11 @@ This session has ended. Please curate the memories from this conversation accord
               "inject-memories",
               "load-session-primer",
               "curate-memories",
+              "curate-memories"
             ],
+          },
+          hooksConfig: {
+            enabled: false,
           },
         };
         await Bun.write(

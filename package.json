@@ -1,6 +1,6 @@
 {
   "name": "@rlabs-inc/memory",
-  "version": "0.5.12",
+  "version": "0.5.13",
   "description": "AI Memory System - Consciousness continuity through intelligent memory curation and retrieval",
   "type": "module",
   "main": "dist/index.js",

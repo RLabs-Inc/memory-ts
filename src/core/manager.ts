@@ -163,21 +163,20 @@ ${pathsSection}
 ${result.session_summary || "No summary provided"}
 
 ### Project Snapshot
-${
-  result.project_snapshot
-    ? `
+${result.project_snapshot
+        ? `
 - Current Phase: ${result.project_snapshot.current_phase || "N/A"}
 - Recent Achievements: ${result.project_snapshot.recent_achievements?.join(", ") || "None"}
 - Active Challenges: ${result.project_snapshot.active_challenges?.join(", ") || "None"}
 - Next Steps: ${result.project_snapshot.next_steps?.join(", ") || "None"}
 `
-    : "No snapshot provided"
-}
+        : "No snapshot provided"
+      }
 
 ### New Memories (${result.memories.length})
 ${result.memories
-  .map(
-    (m, i) => `
+        .map(
+          (m, i) => `
 #### Memory ${i + 1}
 - **Content:** ${m.content}
 - **Type:** ${m.context_type}
@@ -186,8 +185,8 @@ ${result.memories
 - **Importance:** ${m.importance_weight}
 - **Tags:** ${m.semantic_tags?.join(", ") || "None"}
 `,
-  )
-  .join("\n")}
+        )
+        .join("\n")}
 
 ---
 
@@ -503,6 +502,9 @@ Use these tools to read existing memories, write updates, and manage the memory 
             "curate-memories",
             "curate-memories",
           ],
+        },
+        hooksConfig: {
+          enabled: false,
         },
       };
 

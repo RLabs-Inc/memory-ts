@@ -376,10 +376,7 @@ async function installGeminiHooks(options: InstallOptions) {
     ...hooksConfig,
   }
 
-  // Enable hooks system - both locations for compatibility
-  // hooks.enabled = true is what actually makes hooks fire
-  // hooksConfig.enabled is per Gemini docs but may not be sufficient alone
-  settings.hooks.enabled = true
+  // Enable hooks system
   settings.hooksConfig = { enabled: true }
 
   // Write settings
